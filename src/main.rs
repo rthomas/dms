@@ -23,7 +23,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 }
 
 fn handle_request(buf: &[u8], addr: SocketAddr) {
-    let message = Message::parse(buf).unwrap();
+    let message = Message::from_bytes(buf).unwrap();
     println!("Got: {:#?}\n From: {}", message, addr);
 }
 
@@ -66,7 +66,7 @@ mod test {
             0, 10, 0, 8, 107, 120, 163, 147, 238, 31, 231, 235, // rdata
         ];
 
-        let message = Message::parse(input).unwrap();
+        let message = Message::from_bytes(input).unwrap();
 
         println!("{:#?}", message);
     }
@@ -80,7 +80,30 @@ mod test {
             0x00, 0x01, 0x00, 0x00, 0x02, 0x58, 0x00, 0x04, 0x9b, 0x21, 0x11, 0x44,
         ];
 
-        let message = Message::parse(input).unwrap();
+        let message = Message::from_bytes(input).unwrap();
         println!("{:#?}", message);
+    }
+
+    #[test]
+    fn test_deserialize_serialize() {
+        let input: &[u8] = &[
+            0xdb, 0x42, 0x81, 0x80, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x03, 0x77,
+            0x77, 0x77, 0x0c, 0x6e, 0x6f, 0x72, 0x74, 0x68, 0x65, 0x61, 0x73, 0x74, 0x65, 0x72,
+            0x6e, 0x03, 0x65, 0x64, 0x75, 0x00, 0x00, 0x01, 0x00, 0x01, 0xc0, 0x0c, 0x00, 0x01,
+            0x00, 0x01, 0x00, 0x00, 0x02, 0x58, 0x00, 0x04, 0x9b, 0x21, 0x11, 0x44,
+        ];
+
+        let message = Message::from_bytes(input).unwrap();
+        // println!("{:#?}", message);
+
+        let mut buf = Vec::new();
+        message.to_bytes(&mut buf).unwrap();
+
+        println!("{:?}", input);
+        println!("{:?}", buf);
+
+        // let message2 = Message::from_bytes(&buf[..]).unwrap();
+        // println!("MESSAGE 2");
+        // println!("{:#?}", message2);
     }
 }

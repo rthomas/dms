@@ -24,6 +24,31 @@ pub struct Header {
     ar_count: u16,
 }
 
+impl Header {
+    fn to_bytes(&self, buf: &mut Vec<u8>) -> Result<(), InvalidMessageError> {
+        let mut pair = self.id.to_be_bytes();
+        buf.push(pair[0]);
+        buf.push(pair[1]);
+
+        self.flags.to_bytes(buf)?;
+
+        pair = self.qd_count.to_be_bytes();
+        buf.push(pair[0]);
+        buf.push(pair[1]);
+        pair = self.an_count.to_be_bytes();
+        buf.push(pair[0]);
+        buf.push(pair[1]);
+        pair = self.ns_count.to_be_bytes();
+        buf.push(pair[0]);
+        buf.push(pair[1]);
+        pair = self.ar_count.to_be_bytes();
+        buf.push(pair[0]);
+        buf.push(pair[1]);
+
+        Ok(())
+    }
+}
+
 #[derive(Debug)]
 pub struct Flags {
     qr: bool,       // RFC1035 - Query
@@ -35,6 +60,39 @@ pub struct Flags {
     ad: bool,       // RFC4035, RFC6840 - Authentic Data
     cd: bool,       // RFC4035, RFC6840 - Checking Disabled
     rcode: RCode,   // RFC1035
+}
+
+impl Flags {
+    fn to_bytes(&self, buf: &mut Vec<u8>) -> Result<(), InvalidMessageError> {
+        let mut val = 0u8;
+        if self.qr {
+            val |= 1 << 7;
+        }
+        val |= self.opcode.as_u8()?;
+        if self.aa {
+            val |= 1 << 2;
+        }
+        if self.tc {
+            val |= 1 << 1;
+        }
+        if self.rd {
+            val |= 1;
+        }
+        buf.push(val);
+        val = 0;
+        if self.rd {
+            val |= 1 << 7;
+        }
+        if self.ad {
+            val |= 1 << 5;
+        }
+        if self.cd {
+            val |= 1 << 4;
+        }
+        val |= self.rcode.as_u8();
+        buf.push(val);
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -53,11 +111,51 @@ pub struct ResourceRecord {
     rdata: Vec<u8>,
 }
 
+impl ResourceRecord {
+    fn to_bytes(&self, buf: &mut Vec<u8>) -> Result<(), InvalidMessageError> {
+        // TODO here is where we would implement the Message Compression -
+        // though we will need to wire through a map of the strings and
+        // locations. It is perfectly fine with the spec to not implement this.
+        str_to_bytes(&self.name, buf)?;
+        self.rtype.to_bytes(buf);
+        self.class.to_bytes(buf);
+        let ttl = self.ttl.to_be_bytes();
+        buf.push(ttl[0]);
+        buf.push(ttl[1]);
+        buf.push(ttl[2]);
+        buf.push(ttl[3]);
+        buf.push(self.rdata.len() as u8);
+        buf.extend_from_slice(&self.rdata[..]);
+        Ok(())
+    }
+}
+
 #[derive(Debug)]
 struct InnerQuestion {
     qname: Vec<Name>,
     qtype: Type,
     qclass: Class,
+}
+
+/// Splits the string by the '.' character and appends each section preceeded by
+/// its length. This function will append the NULL terminating byte.
+fn str_to_bytes(s: &str, buf: &mut Vec<u8>) -> Result<(), InvalidMessageError> {
+    let name_parts = s.split(".");
+    for name in name_parts {
+        if name.len() > 63 {
+            return Err(InvalidMessageError::new(format!(
+                "The name part {:?} exceeds the limit of 63 bytes.",
+                name
+            )));
+        }
+        let len = name.len() as u8;
+        buf.push(len);
+        for b in name.bytes() {
+            buf.push(b);
+        }
+    }
+    buf.push(0);
+    Ok(())
 }
 
 fn flatten_to_string(names: &Vec<Name>) -> String {
@@ -72,7 +170,8 @@ fn flatten_to_string(names: &Vec<Name>) -> String {
                 let s = flatten_to_string(names);
                 name.push_str(&s);
             }
-            Name::Pointer(i) => {
+            Name::Pointer(_i) => {
+                // TODO - Fix this so that we resolve all pointers.
                 eprintln!("WARNING - FOUND UNRESOLVED POINTER....SKIPPING");
             }
         }
@@ -91,6 +190,16 @@ struct InnerResourceRecord {
     class: Class,
     ttl: u32,
     rdata: Vec<u8>,
+}
+
+impl Question {
+    fn to_bytes(&self, buf: &mut Vec<u8>) -> Result<(), InvalidMessageError> {
+        str_to_bytes(&self.qname, buf)?;
+        self.qtype.to_bytes(buf);
+        self.qclass.to_bytes(buf);
+
+        Ok(())
+    }
 }
 
 impl From<InnerQuestion> for Question {
@@ -130,6 +239,19 @@ pub enum OpCode {
     Reserved,
 }
 
+impl OpCode {
+    fn as_u8(&self) -> Result<u8, InvalidMessageError> {
+        match self {
+            OpCode::Query => Ok(0),
+            OpCode::IQuery => Ok(1),
+            OpCode::Status => Ok(2),
+            OpCode::Reserved => Err(InvalidMessageError::new(
+                "Use of Reserved OpCode".to_string(),
+            )),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum RCode {
     NoError,
@@ -139,6 +261,20 @@ pub enum RCode {
     NotImplemented,
     Refused,
     Unknown(u8),
+}
+
+impl RCode {
+    fn as_u8(&self) -> u8 {
+        match self {
+            RCode::NoError => 0,
+            RCode::FormatError => 1,
+            RCode::ServerFailure => 2,
+            RCode::NameError => 3,
+            RCode::NotImplemented => 4,
+            RCode::Refused => 5,
+            RCode::Unknown(i) => *i,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -164,6 +300,36 @@ pub enum Type {
     MAILA,
     STAR,
     Unknown(u16),
+}
+
+impl Type {
+    fn to_bytes(&self, buf: &mut Vec<u8>) {
+        let val = match self {
+            Self::A => 1u16.to_be_bytes(),
+            Self::NS => 2u16.to_be_bytes(),
+            Self::MD => 3u16.to_be_bytes(),
+            Self::MF => 4u16.to_be_bytes(),
+            Self::CNAME => 5u16.to_be_bytes(),
+            Self::SOA => 6u16.to_be_bytes(),
+            Self::MB => 7u16.to_be_bytes(),
+            Self::MG => 8u16.to_be_bytes(),
+            Self::MR => 9u16.to_be_bytes(),
+            Self::NULL => 10u16.to_be_bytes(),
+            Self::WKS => 11u16.to_be_bytes(),
+            Self::PTR => 12u16.to_be_bytes(),
+            Self::HINFO => 13u16.to_be_bytes(),
+            Self::MINFO => 14u16.to_be_bytes(),
+            Self::MX => 15u16.to_be_bytes(),
+            Self::TXT => 16u16.to_be_bytes(),
+            Self::AXFR => 252u16.to_be_bytes(),
+            Self::MAILB => 253u16.to_be_bytes(),
+            Self::MAILA => 254u16.to_be_bytes(),
+            Self::STAR => 255u16.to_be_bytes(),
+            Self::Unknown(i) => i.to_be_bytes(),
+        };
+        buf.push(val[0]);
+        buf.push(val[1]);
+    }
 }
 
 impl From<u16> for Type {
@@ -204,6 +370,21 @@ pub enum Class {
     Unknown(u16),
 }
 
+impl Class {
+    fn to_bytes(&self, buf: &mut Vec<u8>) {
+        let val = match self {
+            Class::IN => 1u16.to_be_bytes(),
+            Class::CS => 2u16.to_be_bytes(),
+            Class::CH => 3u16.to_be_bytes(),
+            Class::HS => 4u16.to_be_bytes(),
+            Class::STAR => 255u16.to_be_bytes(),
+            Class::Unknown(i) => i.to_be_bytes(),
+        };
+        buf.push(val[0]);
+        buf.push(val[1]);
+    }
+}
+
 impl From<u16> for Class {
     fn from(val: u16) -> Self {
         match val {
@@ -218,10 +399,33 @@ impl From<u16> for Class {
 }
 
 impl Message {
-    pub fn parse<'a>(input: &'a [u8]) -> Result<Message, Box<dyn Error + 'a>> {
+    /// Reads the u8 buffer and parses the DNS message from it.
+    ///
+    /// This includes the dereferencing of rfc1035 Message Compression pointers,
+    /// and collapsing the names into strings.
+    pub fn from_bytes<'a>(input: &'a [u8]) -> Result<Message, Box<dyn Error + 'a>> {
         let (_, message) = read_message(input)?;
 
         Ok(message)
+    }
+
+    /// Serializes the Message to bytes into the provided buffer.
+    pub fn to_bytes(&self, buf: &mut Vec<u8>) -> Result<(), InvalidMessageError> {
+        self.header.to_bytes(buf)?;
+        for q in self.questions.iter() {
+            q.to_bytes(buf)?;
+        }
+        for a in self.answers.iter() {
+            a.to_bytes(buf)?;
+        }
+        for n in self.name_servers.iter() {
+            n.to_bytes(buf)?;
+        }
+        for ar in self.additional_records.iter() {
+            ar.to_bytes(buf)?;
+        }
+
+        Ok(())
     }
 }
 
@@ -481,6 +685,12 @@ fn as_message<'a>(input: &'a [u8]) -> Result<Message, Box<dyn Error + 'a>> {
 #[derive(Debug)]
 pub struct InvalidMessageError {
     message: String,
+}
+
+impl InvalidMessageError {
+    fn new(message: String) -> Self {
+        InvalidMessageError { message }
+    }
 }
 
 impl fmt::Display for InvalidMessageError {
