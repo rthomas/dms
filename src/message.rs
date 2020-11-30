@@ -142,7 +142,7 @@ struct InnerQuestion {
 fn str_to_bytes(s: &str, buf: &mut Vec<u8>) -> Result<(), InvalidMessageError> {
     let name_parts = s.split(".");
     for name in name_parts {
-        if name.len() > 63 {
+        if name.len() >= 63 {
             return Err(InvalidMessageError::new(format!(
                 "The name part {:?} exceeds the limit of 63 bytes.",
                 name
@@ -703,8 +703,7 @@ impl fmt::Display for InvalidMessageError {
 impl Error for InvalidMessageError {}
 
 /// This just does a single level of pointer resolution TODO - we should
-/// dereference all of the pointers, rather than a single level - and need
-/// to add loop protection even for the case of a single pointer pointing back to itself.
+/// dereference all of the pointers, rather than a single level.
 fn resolve_names<'a>(input: &'a [u8], names: &mut Vec<Name>) -> Result<(), Box<dyn Error + 'a>> {
     use std::collections::HashSet;
 
