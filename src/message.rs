@@ -704,7 +704,7 @@ impl Error for InvalidMessageError {}
 fn str_to_bytes(s: &str, buf: &mut Vec<u8>) -> Result<(), InvalidMessageError> {
     let name_parts = s.split(".");
     for name in name_parts {
-        if name.len() >= 63 {
+        if name.len() > 63 {
             return Err(InvalidMessageError::new(format!(
                 "The name part {:?} exceeds the limit of 63 bytes.",
                 name
