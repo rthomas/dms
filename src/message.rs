@@ -4,8 +4,9 @@ use nom::combinator::map_res;
 use nom::IResult;
 use std::error::Error;
 use std::fmt;
+use tracing::{instrument, trace};
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Message {
     pub header: Header,
     pub questions: Vec<Question>,
@@ -14,7 +15,7 @@ pub struct Message {
     pub additional_records: Vec<ResourceRecord>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Header {
     pub id: u16,
     pub flags: Flags,
@@ -24,7 +25,7 @@ pub struct Header {
     pub ar_count: u16,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Flags {
     pub qr: bool,       // RFC1035 - Query
     pub opcode: OpCode, // RFC1035
@@ -37,14 +38,14 @@ pub struct Flags {
     pub rcode: RCode,   // RFC1035
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Question {
     pub qname: String,
     pub qtype: Type,
     pub qclass: Class,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct ResourceRecord {
     pub name: String,
     pub rtype: Type,
@@ -131,6 +132,7 @@ enum Name {
 }
 
 impl Header {
+    #[instrument(skip(buf))]
     fn to_bytes(&self, buf: &mut Vec<u8>) -> Result<(), InvalidMessageError> {
         let mut pair = self.id.to_be_bytes();
         buf.push(pair[0]);
@@ -156,6 +158,7 @@ impl Header {
 }
 
 impl Flags {
+    #[instrument(skip(buf))]
     fn to_bytes(&self, buf: &mut Vec<u8>) -> Result<(), InvalidMessageError> {
         let mut val = 0u8;
         if self.qr {
@@ -189,6 +192,7 @@ impl Flags {
 }
 
 impl Question {
+    #[instrument(skip(buf))]
     fn to_bytes(&self, buf: &mut Vec<u8>) -> Result<(), InvalidMessageError> {
         str_to_bytes(&self.qname, buf)?;
         self.qtype.to_bytes(buf);
@@ -199,6 +203,7 @@ impl Question {
 }
 
 impl ResourceRecord {
+    #[instrument(skip(buf))]
     fn to_bytes(&self, buf: &mut Vec<u8>) -> Result<(), InvalidMessageError> {
         // TODO here is where we would implement the Message Compression -
         // though we will need to wire through a map of the strings and
@@ -211,13 +216,18 @@ impl ResourceRecord {
         buf.push(ttl[1]);
         buf.push(ttl[2]);
         buf.push(ttl[3]);
-        buf.push(self.rdata.len() as u8);
+
+        let rdlength = (self.rdata.len() as u16).to_be_bytes();
+        buf.push(rdlength[0]);
+        buf.push(rdlength[1]);
+
         buf.extend_from_slice(&self.rdata[..]);
         Ok(())
     }
 }
 
 impl From<InnerQuestion> for Question {
+    #[instrument]
     fn from(iq: InnerQuestion) -> Self {
         Question {
             qname: flatten_to_string(&iq.qname),
@@ -228,6 +238,7 @@ impl From<InnerQuestion> for Question {
 }
 
 impl From<InnerResourceRecord> for ResourceRecord {
+    #[instrument]
     fn from(irr: InnerResourceRecord) -> Self {
         ResourceRecord {
             name: flatten_to_string(&irr.name),
@@ -240,6 +251,7 @@ impl From<InnerResourceRecord> for ResourceRecord {
 }
 
 impl OpCode {
+    #[instrument]
     fn as_u8(&self) -> Result<u8, InvalidMessageError> {
         match self {
             OpCode::Query => Ok(0),
@@ -253,6 +265,7 @@ impl OpCode {
 }
 
 impl RCode {
+    #[instrument]
     fn as_u8(&self) -> u8 {
         match self {
             RCode::NoError => 0,
@@ -267,6 +280,7 @@ impl RCode {
 }
 
 impl Type {
+    #[instrument(skip(buf))]
     fn to_bytes(&self, buf: &mut Vec<u8>) {
         let val = match self {
             Self::A => 1u16.to_be_bytes(),
@@ -297,6 +311,7 @@ impl Type {
 }
 
 impl From<u16> for Type {
+    #[instrument]
     fn from(val: u16) -> Self {
         match val {
             1 => Type::A,
@@ -325,6 +340,7 @@ impl From<u16> for Type {
 }
 
 impl Class {
+    #[instrument(skip(buf))]
     fn to_bytes(&self, buf: &mut Vec<u8>) {
         let val = match self {
             Class::IN => 1u16.to_be_bytes(),
@@ -340,6 +356,7 @@ impl Class {
 }
 
 impl From<u16> for Class {
+    #[instrument]
     fn from(val: u16) -> Self {
         match val {
             1 => Class::IN,
@@ -357,6 +374,7 @@ impl Message {
     ///
     /// This includes the dereferencing of rfc1035 Message Compression pointers,
     /// and collapsing the names into strings.
+    #[instrument(skip(input))]
     pub fn from_bytes<'a>(input: &'a [u8]) -> Result<Message, Box<dyn Error + 'a>> {
         let (_, message) = read_message(input)?;
 
@@ -364,6 +382,7 @@ impl Message {
     }
 
     /// Serializes the Message to bytes into the provided buffer.
+    #[instrument(skip(buf))]
     pub fn to_bytes(&self, buf: &mut Vec<u8>) -> Result<(), InvalidMessageError> {
         self.header.to_bytes(buf)?;
         for q in self.questions.iter() {
@@ -383,24 +402,30 @@ impl Message {
     }
 }
 
+#[instrument(skip(input))]
 fn read_u16(input: &[u8]) -> IResult<&[u8], u16> {
+    trace!("reading u16");
     nom::combinator::map(nom::bytes::complete::take(2usize), |input: &[u8]| {
         let b = [input[0], input[1]];
         u16::from_be_bytes(b)
     })(input)
 }
 
+#[instrument(skip(input))]
 fn read_u32(input: &[u8]) -> IResult<&[u8], u32> {
+    trace!("reading u32");
     nom::combinator::map(nom::bytes::complete::take(4usize), |input: &[u8]| {
         let b = [input[0], input[1], input[2], input[3]];
         u32::from_be_bytes(b)
     })(input)
 }
 
+#[instrument(skip(input))]
 fn read_flags(input: &[u8]) -> IResult<&[u8], Flags> {
     map_res(
         take_bytes(2usize),
         |input| -> Result<Flags, Box<dyn Error>> {
+            trace!("reading flags");
             use nom::bits::bits;
             use nom::bits::complete::tag as tag_bits;
 
@@ -450,10 +475,12 @@ fn read_flags(input: &[u8]) -> IResult<&[u8], Flags> {
     )(input)
 }
 
+#[instrument(skip(input))]
 fn read_header(input: &[u8]) -> IResult<&[u8], Header> {
     map_res(
         take_bytes(12usize),
         |input| -> Result<Header, Box<dyn Error>> {
+            trace!("reading header");
             let (input, id) = read_u16(input)?;
             let (input, flags) = read_flags(input)?;
             let (input, qd_count) = read_u16(input)?;
@@ -473,7 +500,9 @@ fn read_header(input: &[u8]) -> IResult<&[u8], Header> {
     )(input)
 }
 
+#[instrument(skip(input))]
 fn read_names(input: &[u8]) -> IResult<&[u8], Vec<Name>> {
+    trace!("reading names");
     use nom::bits::bits;
 
     let mut qname = Vec::new();
@@ -493,11 +522,13 @@ fn read_names(input: &[u8]) -> IResult<&[u8], Vec<Name>> {
             if flags == 0b11 {
                 // This is a compressed offset
                 let (i, offset): (_, u16) = take_bits(14usize)(i)?;
+                trace!("Name pointer at offset: {}", offset);
                 Ok((i, NameRecord::Offset(offset)))
             } else {
                 let mut len: u8 = flags << 6;
                 let (i, l): (_, u8) = take_bits(6usize)(i)?;
                 len = len | l;
+                trace!("Name of length {} found", len);
                 Ok((i, NameRecord::Length(len)))
             }
         })(input)?;
@@ -526,7 +557,9 @@ fn read_names(input: &[u8]) -> IResult<&[u8], Vec<Name>> {
     Ok((input, qname))
 }
 
+#[instrument(skip(input))]
 fn read_question(input: &[u8]) -> IResult<&[u8], InnerQuestion> {
+    trace!("reading question");
     let (input, qname) = read_names(input)?;
 
     let (input, qtype) = {
@@ -548,7 +581,9 @@ fn read_question(input: &[u8]) -> IResult<&[u8], InnerQuestion> {
     ))
 }
 
+#[instrument(skip(input))]
 fn read_resource_record(input: &[u8]) -> IResult<&[u8], InnerResourceRecord> {
+    trace!("reading resource record");
     let (input, name) = read_names(input)?;
     let (input, rtype) = {
         let (i, r) = read_u16(input)?;
@@ -560,6 +595,9 @@ fn read_resource_record(input: &[u8]) -> IResult<&[u8], InnerResourceRecord> {
     };
     let (input, ttl) = read_u32(input)?;
     let (input, rdlength) = read_u16(input)?;
+
+    trace!("Found rdata of length: {}", rdlength);
+
     let (_, rdata) = take_bytes(rdlength)(input)?;
     let rdata = Vec::from(rdata);
     Ok((
@@ -574,11 +612,14 @@ fn read_resource_record(input: &[u8]) -> IResult<&[u8], InnerResourceRecord> {
     ))
 }
 
+#[instrument(skip(input))]
 fn read_message(input: &[u8]) -> IResult<&[u8], Message> {
+    trace!("reading message");
     // TODO - There has to be a better way to consume all of the input than this...
     map_res(take_bytes(input.len()), as_message)(input)
 }
 
+#[instrument(skip(input))]
 fn as_message<'a>(input: &'a [u8]) -> Result<Message, Box<dyn Error + 'a>> {
     let original_input = input;
     let (mut input, header) = read_header(input)?;
@@ -610,6 +651,8 @@ fn as_message<'a>(input: &'a [u8]) -> Result<Message, Box<dyn Error + 'a>> {
         input = i;
         additional_records.push(record);
     }
+
+    trace!("resolving name pointers");
 
     // Resolve the Name::Pointer records.
     for q in questions.iter_mut() {
@@ -657,6 +700,7 @@ impl fmt::Display for InvalidMessageError {
 
 impl Error for InvalidMessageError {}
 
+#[instrument(skip(buf))]
 fn str_to_bytes(s: &str, buf: &mut Vec<u8>) -> Result<(), InvalidMessageError> {
     let name_parts = s.split(".");
     for name in name_parts {
@@ -678,6 +722,7 @@ fn str_to_bytes(s: &str, buf: &mut Vec<u8>) -> Result<(), InvalidMessageError> {
 
 /// Splits the string by the '.' character and appends each section preceeded by
 /// its length. This function will append the NULL terminating byte.
+#[instrument]
 fn flatten_to_string(names: &Vec<Name>) -> String {
     let mut name = String::new();
     for n in names.iter() {
@@ -705,6 +750,7 @@ fn flatten_to_string(names: &Vec<Name>) -> String {
 
 /// This just does a single level of pointer resolution TODO - we should
 /// dereference all of the pointers, rather than a single level.
+#[instrument(skip(input))]
 fn resolve_names<'a>(input: &'a [u8], names: &mut Vec<Name>) -> Result<(), Box<dyn Error + 'a>> {
     use std::collections::HashSet;
 

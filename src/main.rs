@@ -8,6 +8,8 @@ mod message;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    tracing_subscriber::fmt::init();
+
     let addr = "127.0.0.1:8053";
     let listener = UdpSocket::bind(&addr).await?;
 
@@ -121,7 +123,9 @@ mod test {
     }
 
     #[test]
-    fn test_deserialize_serialize() {
+    fn test_deserialize_serialize_deserialize() {
+        tracing_subscriber::fmt::init();
+
         let input: &[u8] = &[
             0xdb, 0x42, 0x81, 0x80, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x03, 0x77,
             0x77, 0x77, 0x0c, 0x6e, 0x6f, 0x72, 0x74, 0x68, 0x65, 0x61, 0x73, 0x74, 0x65, 0x72,
@@ -134,12 +138,7 @@ mod test {
 
         let mut buf = Vec::new();
         message.to_bytes(&mut buf).unwrap();
-
-        println!("{:?}", input);
-        println!("{:?}", buf);
-
-        // let message2 = Message::from_bytes(&buf[..]).unwrap();
-        // println!("MESSAGE 2");
-        // println!("{:#?}", message2);
+        let message2 = Message::from_bytes(&buf[..]).unwrap();
+        assert_eq!(message, message2);
     }
 }
