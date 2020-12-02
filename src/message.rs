@@ -7,21 +7,127 @@ use std::fmt;
 
 #[derive(Debug)]
 pub struct Message {
-    header: Header,
-    questions: Vec<Question>,
-    answers: Vec<ResourceRecord>,
-    name_servers: Vec<ResourceRecord>,
-    additional_records: Vec<ResourceRecord>,
+    pub header: Header,
+    pub questions: Vec<Question>,
+    pub answers: Vec<ResourceRecord>,
+    pub name_servers: Vec<ResourceRecord>,
+    pub additional_records: Vec<ResourceRecord>,
 }
 
 #[derive(Debug)]
 pub struct Header {
-    id: u16,
-    flags: Flags,
-    qd_count: u16,
-    an_count: u16,
-    ns_count: u16,
-    ar_count: u16,
+    pub id: u16,
+    pub flags: Flags,
+    pub qd_count: u16,
+    pub an_count: u16,
+    pub ns_count: u16,
+    pub ar_count: u16,
+}
+
+#[derive(Debug)]
+pub struct Flags {
+    pub qr: bool,       // RFC1035 - Query
+    pub opcode: OpCode, // RFC1035
+    pub aa: bool,       // RFC1035 - Authorative Answer
+    pub tc: bool,       // RFC1035 - Truncation
+    pub rd: bool,       // RFC1035 - Recursion Desired
+    pub ra: bool,       // RFC1035 - Recursion Available
+    pub ad: bool,       // RFC4035, RFC6840 - Authentic Data
+    pub cd: bool,       // RFC4035, RFC6840 - Checking Disabled
+    pub rcode: RCode,   // RFC1035
+}
+
+#[derive(Debug)]
+pub struct Question {
+    pub qname: String,
+    pub qtype: Type,
+    pub qclass: Class,
+}
+
+#[derive(Debug)]
+pub struct ResourceRecord {
+    pub name: String,
+    pub rtype: Type,
+    pub class: Class,
+    pub ttl: u32,
+    pub rdata: Vec<u8>,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum OpCode {
+    Query = 0,
+    IQuery = 1,
+    Status = 2,
+    Reserved,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Class {
+    IN,
+    CS,
+    CH,
+    HS,
+    STAR,
+    Unknown(u16),
+}
+
+#[derive(Debug, PartialEq)]
+pub enum RCode {
+    NoError,
+    FormatError,
+    ServerFailure,
+    NameError,
+    NotImplemented,
+    Refused,
+    Unknown(u8),
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Type {
+    A,
+    NS,
+    MD,
+    MF,
+    CNAME,
+    SOA,
+    MB,
+    MG,
+    MR,
+    NULL,
+    WKS,
+    PTR,
+    HINFO,
+    MINFO,
+    MX,
+    TXT,
+    AXFR,
+    MAILB,
+    MAILA,
+    STAR,
+    Unknown(u16),
+}
+
+#[derive(Debug)]
+struct InnerQuestion {
+    qname: Vec<Name>,
+    qtype: Type,
+    qclass: Class,
+}
+
+#[derive(Debug)]
+struct InnerResourceRecord {
+    name: Vec<Name>,
+    rtype: Type,
+    class: Class,
+    ttl: u32,
+    rdata: Vec<u8>,
+}
+
+#[derive(Debug, Clone)]
+enum Name {
+    Name(String),
+    Pointer(u16),
+    ResolvedPtr(Vec<Name>),
 }
 
 impl Header {
@@ -47,19 +153,6 @@ impl Header {
 
         Ok(())
     }
-}
-
-#[derive(Debug)]
-pub struct Flags {
-    qr: bool,       // RFC1035 - Query
-    opcode: OpCode, // RFC1035
-    aa: bool,       // RFC1035 - Authorative Answer
-    tc: bool,       // RFC1035 - Truncation
-    rd: bool,       // RFC1035 - Recursion Desired
-    ra: bool,       // RFC1035 - Recursion Available
-    ad: bool,       // RFC4035, RFC6840 - Authentic Data
-    cd: bool,       // RFC4035, RFC6840 - Checking Disabled
-    rcode: RCode,   // RFC1035
 }
 
 impl Flags {
@@ -95,20 +188,14 @@ impl Flags {
     }
 }
 
-#[derive(Debug)]
-pub struct Question {
-    qname: String,
-    qtype: Type,
-    qclass: Class,
-}
+impl Question {
+    fn to_bytes(&self, buf: &mut Vec<u8>) -> Result<(), InvalidMessageError> {
+        str_to_bytes(&self.qname, buf)?;
+        self.qtype.to_bytes(buf);
+        self.qclass.to_bytes(buf);
 
-#[derive(Debug)]
-pub struct ResourceRecord {
-    name: String,
-    rtype: Type,
-    class: Class,
-    ttl: u32,
-    rdata: Vec<u8>,
+        Ok(())
+    }
 }
 
 impl ResourceRecord {
@@ -126,78 +213,6 @@ impl ResourceRecord {
         buf.push(ttl[3]);
         buf.push(self.rdata.len() as u8);
         buf.extend_from_slice(&self.rdata[..]);
-        Ok(())
-    }
-}
-
-#[derive(Debug)]
-struct InnerQuestion {
-    qname: Vec<Name>,
-    qtype: Type,
-    qclass: Class,
-}
-
-/// Splits the string by the '.' character and appends each section preceeded by
-/// its length. This function will append the NULL terminating byte.
-fn str_to_bytes(s: &str, buf: &mut Vec<u8>) -> Result<(), InvalidMessageError> {
-    let name_parts = s.split(".");
-    for name in name_parts {
-        if name.len() >= 63 {
-            return Err(InvalidMessageError::new(format!(
-                "The name part {:?} exceeds the limit of 63 bytes.",
-                name
-            )));
-        }
-        let len = name.len() as u8;
-        buf.push(len);
-        for b in name.bytes() {
-            buf.push(b);
-        }
-    }
-    buf.push(0);
-    Ok(())
-}
-
-fn flatten_to_string(names: &Vec<Name>) -> String {
-    let mut name = String::new();
-    for n in names.iter() {
-        match n {
-            Name::Name(part) => {
-                name.push_str(part);
-                name.push('.');
-            }
-            Name::ResolvedPtr(names) => {
-                let s = flatten_to_string(names);
-                name.push_str(&s);
-            }
-            Name::Pointer(_i) => {
-                // TODO - Fix this so that we resolve all pointers.
-                eprintln!("WARNING - FOUND UNRESOLVED POINTER....SKIPPING");
-            }
-        }
-    }
-    // Remove the trailing '.'
-    if name.chars().last() == Some('.') {
-        name.pop();
-    }
-    name
-}
-
-#[derive(Debug)]
-struct InnerResourceRecord {
-    name: Vec<Name>,
-    rtype: Type,
-    class: Class,
-    ttl: u32,
-    rdata: Vec<u8>,
-}
-
-impl Question {
-    fn to_bytes(&self, buf: &mut Vec<u8>) -> Result<(), InvalidMessageError> {
-        str_to_bytes(&self.qname, buf)?;
-        self.qtype.to_bytes(buf);
-        self.qclass.to_bytes(buf);
-
         Ok(())
     }
 }
@@ -224,21 +239,6 @@ impl From<InnerResourceRecord> for ResourceRecord {
     }
 }
 
-#[derive(Debug, Clone)]
-enum Name {
-    Name(String),
-    Pointer(u16),
-    ResolvedPtr(Vec<Name>),
-}
-
-#[derive(Debug)]
-pub enum OpCode {
-    Query = 0,
-    IQuery = 1,
-    Status = 2,
-    Reserved,
-}
-
 impl OpCode {
     fn as_u8(&self) -> Result<u8, InvalidMessageError> {
         match self {
@@ -250,17 +250,6 @@ impl OpCode {
             )),
         }
     }
-}
-
-#[derive(Debug)]
-pub enum RCode {
-    NoError,
-    FormatError,
-    ServerFailure,
-    NameError,
-    NotImplemented,
-    Refused,
-    Unknown(u8),
 }
 
 impl RCode {
@@ -275,31 +264,6 @@ impl RCode {
             RCode::Unknown(i) => *i,
         }
     }
-}
-
-#[derive(Debug)]
-pub enum Type {
-    A,
-    NS,
-    MD,
-    MF,
-    CNAME,
-    SOA,
-    MB,
-    MG,
-    MR,
-    NULL,
-    WKS,
-    PTR,
-    HINFO,
-    MINFO,
-    MX,
-    TXT,
-    AXFR,
-    MAILB,
-    MAILA,
-    STAR,
-    Unknown(u16),
 }
 
 impl Type {
@@ -358,16 +322,6 @@ impl From<u16> for Type {
             _ => Type::Unknown(val),
         }
     }
-}
-
-#[derive(Debug)]
-pub enum Class {
-    IN,
-    CS,
-    CH,
-    HS,
-    STAR,
-    Unknown(u16),
 }
 
 impl Class {
@@ -429,100 +383,94 @@ impl Message {
     }
 }
 
-fn as_u16(input: &[u8]) -> Result<u16, std::num::ParseIntError> {
-    let b = [input[0], input[1]];
-    Ok(u16::from_be_bytes(b))
-}
-
 fn read_u16(input: &[u8]) -> IResult<&[u8], u16> {
-    nom::combinator::map_res(nom::bytes::complete::take(2usize), as_u16)(input)
-}
-
-fn as_u32(input: &[u8]) -> Result<u32, std::num::ParseIntError> {
-    let b = [input[0], input[1], input[2], input[3]];
-    Ok(u32::from_be_bytes(b))
+    nom::combinator::map(nom::bytes::complete::take(2usize), |input: &[u8]| {
+        let b = [input[0], input[1]];
+        u16::from_be_bytes(b)
+    })(input)
 }
 
 fn read_u32(input: &[u8]) -> IResult<&[u8], u32> {
-    nom::combinator::map_res(nom::bytes::complete::take(4usize), as_u32)(input)
-}
-
-fn as_flags<'a>(input: &'a [u8]) -> Result<Flags, Box<dyn Error + 'a>> {
-    use nom::bits::bits;
-    use nom::bits::complete::tag as tag_bits;
-
-    use nom::combinator::map;
-
-    let (_, (qr, opcode, aa, tc, rd, ra, ad, cd, rcode)) =
-        bits::<_, _, nom::error::Error<_>, nom::error::Error<_>, _>(|i| {
-            let is_one = |s: u8| s == 1;
-            let (i, qr) = map(take_bits(1usize), is_one)(i)?;
-            let (i, opcode) = match map(take_bits(4usize), |s: u8| s)(i)? {
-                (i, 0) => (i, OpCode::Query),
-                (i, 1) => (i, OpCode::IQuery),
-                (i, 2) => (i, OpCode::Status),
-                (i, _) => (i, OpCode::Reserved),
-            };
-            let (i, aa) = map(take_bits(1usize), is_one)(i)?;
-            let (i, tc) = map(take_bits(1usize), is_one)(i)?;
-            let (i, rd) = map(take_bits(1usize), is_one)(i)?;
-            let (i, ra) = map(take_bits(1usize), is_one)(i)?;
-            let (i, _) = tag_bits(0, 1usize)(i)?;
-            let (i, ad) = map(take_bits(1usize), is_one)(i)?;
-            let (i, cd) = map(take_bits(1usize), is_one)(i)?;
-            let (i, rcode) = match map(take_bits(4usize), |s: u8| s)(i)? {
-                (i, 0) => (i, RCode::NoError),
-                (i, 1) => (i, RCode::FormatError),
-                (i, 2) => (i, RCode::ServerFailure),
-                (i, 3) => (i, RCode::NameError),
-                (i, 4) => (i, RCode::NotImplemented),
-                (i, 5) => (i, RCode::Refused),
-                (i, x) => (i, RCode::Unknown(x)),
-            };
-            Ok(((i), (qr, opcode, aa, tc, rd, ra, ad, cd, rcode)))
-        })(input)?;
-
-    Ok(Flags {
-        qr,
-        opcode,
-        aa,
-        tc,
-        rd,
-        ra,
-        ad,
-        cd,
-        rcode,
-    })
+    nom::combinator::map(nom::bytes::complete::take(4usize), |input: &[u8]| {
+        let b = [input[0], input[1], input[2], input[3]];
+        u32::from_be_bytes(b)
+    })(input)
 }
 
 fn read_flags(input: &[u8]) -> IResult<&[u8], Flags> {
-    map_res(take_bytes(2usize), as_flags)(input)
-}
+    map_res(
+        take_bytes(2usize),
+        |input| -> Result<Flags, Box<dyn Error>> {
+            use nom::bits::bits;
+            use nom::bits::complete::tag as tag_bits;
 
-fn as_header<'a>(input: &'a [u8]) -> Result<Header, Box<dyn Error + 'a>> {
-    let (input, id) = read_u16(input)?;
-    let (input, flags) = read_flags(input)?;
-    let (input, qd_count) = read_u16(input)?;
-    let (input, an_count) = read_u16(input)?;
-    let (input, ns_count) = read_u16(input)?;
-    let (_, ar_count) = read_u16(input)?;
+            use nom::combinator::map;
 
-    Ok(Header {
-        id,
-        flags,
-        qd_count,
-        an_count,
-        ns_count,
-        ar_count,
-    })
+            let (_, (qr, opcode, aa, tc, rd, ra, ad, cd, rcode)) =
+                bits::<_, _, nom::error::Error<_>, nom::error::Error<_>, _>(|i| {
+                    let is_one = |s: u8| s == 1;
+                    let (i, qr) = map(take_bits(1usize), is_one)(i)?;
+                    let (i, opcode) = match map(take_bits(4usize), |s: u8| s)(i)? {
+                        (i, 0) => (i, OpCode::Query),
+                        (i, 1) => (i, OpCode::IQuery),
+                        (i, 2) => (i, OpCode::Status),
+                        (i, _) => (i, OpCode::Reserved),
+                    };
+                    let (i, aa) = map(take_bits(1usize), is_one)(i)?;
+                    let (i, tc) = map(take_bits(1usize), is_one)(i)?;
+                    let (i, rd) = map(take_bits(1usize), is_one)(i)?;
+                    let (i, ra) = map(take_bits(1usize), is_one)(i)?;
+                    let (i, _) = tag_bits(0, 1usize)(i)?;
+                    let (i, ad) = map(take_bits(1usize), is_one)(i)?;
+                    let (i, cd) = map(take_bits(1usize), is_one)(i)?;
+                    let (i, rcode) = match map(take_bits(4usize), |s: u8| s)(i)? {
+                        (i, 0) => (i, RCode::NoError),
+                        (i, 1) => (i, RCode::FormatError),
+                        (i, 2) => (i, RCode::ServerFailure),
+                        (i, 3) => (i, RCode::NameError),
+                        (i, 4) => (i, RCode::NotImplemented),
+                        (i, 5) => (i, RCode::Refused),
+                        (i, x) => (i, RCode::Unknown(x)),
+                    };
+                    Ok(((i), (qr, opcode, aa, tc, rd, ra, ad, cd, rcode)))
+                })(input)?;
+
+            Ok(Flags {
+                qr,
+                opcode,
+                aa,
+                tc,
+                rd,
+                ra,
+                ad,
+                cd,
+                rcode,
+            })
+        },
+    )(input)
 }
 
 fn read_header(input: &[u8]) -> IResult<&[u8], Header> {
-    map_res(take_bytes(12usize), as_header)(input)
-}
+    map_res(
+        take_bytes(12usize),
+        |input| -> Result<Header, Box<dyn Error>> {
+            let (input, id) = read_u16(input)?;
+            let (input, flags) = read_flags(input)?;
+            let (input, qd_count) = read_u16(input)?;
+            let (input, an_count) = read_u16(input)?;
+            let (input, ns_count) = read_u16(input)?;
+            let (_, ar_count) = read_u16(input)?;
 
-fn as_name(input: &[u8]) -> Result<Name, Box<dyn Error>> {
-    Ok(Name::Name(std::str::from_utf8(input)?.to_string()))
+            Ok(Header {
+                id,
+                flags,
+                qd_count,
+                an_count,
+                ns_count,
+                ar_count,
+            })
+        },
+    )(input)
 }
 
 fn read_names(input: &[u8]) -> IResult<&[u8], Vec<Name>> {
@@ -567,7 +515,9 @@ fn read_names(input: &[u8]) -> IResult<&[u8], Vec<Name>> {
                     break;
                 }
 
-                let (i, name) = map_res(take_bytes(length), as_name)(i)?;
+                let (i, name) = map_res(take_bytes(length), |i| -> Result<Name, Box<dyn Error>> {
+                    Ok(Name::Name(std::str::from_utf8(i)?.to_string()))
+                })(i)?;
                 qname.push(name);
                 input = i;
             }
@@ -622,6 +572,11 @@ fn read_resource_record(input: &[u8]) -> IResult<&[u8], InnerResourceRecord> {
             rdata,
         },
     ))
+}
+
+fn read_message(input: &[u8]) -> IResult<&[u8], Message> {
+    // TODO - There has to be a better way to consume all of the input than this...
+    map_res(take_bytes(input.len()), as_message)(input)
 }
 
 fn as_message<'a>(input: &'a [u8]) -> Result<Message, Box<dyn Error + 'a>> {
@@ -702,6 +657,52 @@ impl fmt::Display for InvalidMessageError {
 
 impl Error for InvalidMessageError {}
 
+fn str_to_bytes(s: &str, buf: &mut Vec<u8>) -> Result<(), InvalidMessageError> {
+    let name_parts = s.split(".");
+    for name in name_parts {
+        if name.len() >= 63 {
+            return Err(InvalidMessageError::new(format!(
+                "The name part {:?} exceeds the limit of 63 bytes.",
+                name
+            )));
+        }
+        let len = name.len() as u8;
+        buf.push(len);
+        for b in name.bytes() {
+            buf.push(b);
+        }
+    }
+    buf.push(0);
+    Ok(())
+}
+
+/// Splits the string by the '.' character and appends each section preceeded by
+/// its length. This function will append the NULL terminating byte.
+fn flatten_to_string(names: &Vec<Name>) -> String {
+    let mut name = String::new();
+    for n in names.iter() {
+        match n {
+            Name::Name(part) => {
+                name.push_str(part);
+                name.push('.');
+            }
+            Name::ResolvedPtr(names) => {
+                let s = flatten_to_string(names);
+                name.push_str(&s);
+            }
+            Name::Pointer(_i) => {
+                // TODO - Fix this so that we resolve all pointers.
+                eprintln!("WARNING - FOUND UNRESOLVED POINTER....SKIPPING");
+            }
+        }
+    }
+    // Remove the trailing '.'
+    if name.chars().last() == Some('.') {
+        name.pop();
+    }
+    name
+}
+
 /// This just does a single level of pointer resolution TODO - we should
 /// dereference all of the pointers, rather than a single level.
 fn resolve_names<'a>(input: &'a [u8], names: &mut Vec<Name>) -> Result<(), Box<dyn Error + 'a>> {
@@ -729,9 +730,4 @@ fn resolve_names<'a>(input: &'a [u8], names: &mut Vec<Name>) -> Result<(), Box<d
         }
     }
     Ok(())
-}
-
-fn read_message(input: &[u8]) -> IResult<&[u8], Message> {
-    // TODO - There has to be a better way to consume all of the input than this...
-    map_res(take_bytes(input.len()), as_message)(input)
 }
