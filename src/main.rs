@@ -32,17 +32,7 @@ mod test {
     use super::message::Message;
 
     #[test]
-    fn test_parse() {
-        // let input: &[u8] = &[
-        //     0b0000, 0b0011, // ID
-        //     0b1000, 0b0001, // QR, Opcode, AA, TC, RD
-        //     0b0000, 0b0000, // RA, Z, RCODE
-        //     0b0000, 0b0000, // QDCOUNT
-        //     0b0000, 0b0000, // ANCOUNT
-        //     0b0000, 0b0000, // NSCOUNT
-        //     0b0000, 0b0000, // ARCOUNT
-        // ];
-
+    fn test_parse_question() {
         let input: &[u8] = &[
             83, 202, // ID
             1, 32, // Flags
@@ -68,11 +58,30 @@ mod test {
 
         let message = Message::from_bytes(input).unwrap();
 
-        println!("{:#?}", message);
+        // Header
+        assert_eq!(message.header.id, 21450);
+        assert!(!message.header.flags.qr);
+        assert_eq!(message.header.flags.opcode, crate::message::OpCode::Query);
+        assert!(!message.header.flags.aa);
+        assert!(!message.header.flags.tc);
+        assert!(message.header.flags.rd);
+        assert!(!message.header.flags.ra);
+        assert!(message.header.flags.ad);
+        assert!(!message.header.flags.cd);
+        assert_eq!(message.header.flags.rcode, crate::message::RCode::NoError);
+        assert_eq!(message.header.qd_count, 1);
+        assert_eq!(message.header.an_count, 0);
+        assert_eq!(message.header.ns_count, 0);
+        assert_eq!(message.header.ar_count, 1);
+
+        // Question
+        assert_eq!(message.questions[0].qname, "www.google.com");
+        assert_eq!(message.questions[0].qtype, crate::message::Type::A);
+        assert_eq!(message.questions[0].qclass, crate::message::Class::IN);
     }
 
     #[test]
-    fn test_parse_resp() {
+    fn test_parse_answer() {
         let input: &[u8] = &[
             0xdb, 0x42, 0x81, 0x80, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x03, 0x77,
             0x77, 0x77, 0x0c, 0x6e, 0x6f, 0x72, 0x74, 0x68, 0x65, 0x61, 0x73, 0x74, 0x65, 0x72,
@@ -81,7 +90,34 @@ mod test {
         ];
 
         let message = Message::from_bytes(input).unwrap();
-        println!("{:#?}", message);
+
+        // Header
+        assert_eq!(message.header.id, 56130);
+        assert!(message.header.flags.qr);
+        assert_eq!(message.header.flags.opcode, crate::message::OpCode::Query);
+        assert!(!message.header.flags.aa);
+        assert!(!message.header.flags.tc);
+        assert!(message.header.flags.rd);
+        assert!(message.header.flags.ra);
+        assert!(!message.header.flags.ad);
+        assert!(!message.header.flags.cd);
+        assert_eq!(message.header.flags.rcode, crate::message::RCode::NoError);
+        assert_eq!(message.header.qd_count, 1);
+        assert_eq!(message.header.an_count, 1);
+        assert_eq!(message.header.ns_count, 0);
+        assert_eq!(message.header.ar_count, 0);
+
+        // Question
+        assert_eq!(message.questions[0].qname, "www.northeastern.edu");
+        assert_eq!(message.questions[0].qtype, crate::message::Type::A);
+        assert_eq!(message.questions[0].qclass, crate::message::Class::IN);
+
+        // Answer
+        assert_eq!(message.answers[0].name, "www.northeastern.edu");
+        assert_eq!(message.answers[0].rtype, crate::message::Type::A);
+        assert_eq!(message.answers[0].class, crate::message::Class::IN);
+        assert_eq!(message.answers[0].ttl, 600);
+        assert_eq!(message.answers[0].rdata, vec![155, 33, 17, 68]);
     }
 
     #[test]
