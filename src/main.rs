@@ -80,6 +80,7 @@ mod test {
         assert_eq!(message.questions[0].qname, "www.google.com");
         assert_eq!(message.questions[0].qtype, crate::message::Type::A);
         assert_eq!(message.questions[0].qclass, crate::message::Class::IN);
+        println!("{}", message);
     }
 
     #[test]
@@ -120,6 +121,8 @@ mod test {
         assert_eq!(message.answers[0].class, crate::message::Class::IN);
         assert_eq!(message.answers[0].ttl, 600);
         assert_eq!(message.answers[0].rdata, vec![155, 33, 17, 68]);
+
+        println!("{}", message);
     }
 
     #[test]
@@ -134,7 +137,6 @@ mod test {
         ];
 
         let message = Message::from_bytes(input).unwrap();
-        // println!("{:#?}", message);
 
         let mut buf = Vec::new();
         message.to_bytes(&mut buf).unwrap();

@@ -339,6 +339,38 @@ impl From<u16> for Type {
     }
 }
 
+impl fmt::Display for Type {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        let disp = match self {
+            Self::A => "A",
+            Self::NS => "NS",
+            Self::MD => "MD",
+            Self::MF => "MF",
+            Self::CNAME => "CNAME",
+            Self::SOA => "SOA",
+            Self::MB => "MB",
+            Self::MG => "MG",
+            Self::MR => "MR",
+            Self::NULL => "NULL",
+            Self::WKS => "WKS",
+            Self::PTR => "PTR",
+            Self::HINFO => "HINFO",
+            Self::MINFO => "MINFO",
+            Self::MX => "MX",
+            Self::TXT => "TXT",
+            Self::AXFR => "AXFR",
+            Self::MAILB => "MAILB",
+            Self::MAILA => "MAILA",
+            Self::STAR => "*",
+            Self::Unknown(i) => {
+                write!(f, "Unknown({})", i)?;
+                return Ok(());
+            }
+        };
+        write!(f, "{}", disp)
+    }
+}
+
 impl Class {
     #[instrument(skip(buf))]
     fn to_bytes(&self, buf: &mut Vec<u8>) {
@@ -398,6 +430,35 @@ impl Message {
             ar.to_bytes(buf)?;
         }
 
+        Ok(())
+    }
+}
+
+impl fmt::Display for Message {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "Message(id:{}) - ", self.header.id)?;
+        if self.header.flags.qr {
+            write!(f, "Response [")?;
+            for a in self.answers.iter() {
+                write!(f, "{} => {}(", a.name, a.rtype)?;
+                match a.rtype {
+                    Type::A => write!(
+                        f,
+                        "{}.{}.{}.{}",
+                        a.rdata[0], a.rdata[1], a.rdata[2], a.rdata[3]
+                    )?,
+                    _ => {}
+                }
+                write!(f, "), ")?;
+            }
+            write!(f, "]")?;
+        } else {
+            write!(f, "Query [")?;
+            for q in self.questions.iter() {
+                write!(f, "{}({}), ", q.qname, q.qtype)?;
+            }
+            write!(f, "]")?;
+        }
         Ok(())
     }
 }
