@@ -5,6 +5,7 @@ name = "dms"
 version = "0.1.0"
 
 [dependencies]
+anyhow = "1.0.34"
 nom = "6.0.0"
 tokio = { version = "0.3.4", features = ["full"] }
 tracing = "0.1.21" 
