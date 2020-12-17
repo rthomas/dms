@@ -2,6 +2,7 @@ use nom::bits::complete::take as take_bits;
 use nom::bytes::complete::take as take_bytes;
 use nom::combinator::map_res;
 use nom::IResult;
+use std::collections::HashSet;
 use std::error::Error;
 use std::fmt;
 use tracing::{instrument, trace};
@@ -672,7 +673,8 @@ fn read_resource_record(input: &[u8]) -> IResult<&[u8], InnerResourceRecord> {
 
     trace!("Found rdata of length: {}", rdlength);
 
-    let (_, rdata) = take_bytes(rdlength)(input)?;
+    let (input, rdata) = take_bytes(rdlength)(input)?;
+    trace!("rdata: {:?}", rdata);
     let rdata = Vec::from(rdata);
     Ok((
         input,
@@ -730,16 +732,16 @@ fn as_message<'a>(input: &[u8]) -> Result<Message> {
 
     // Resolve the Name::Pointer records.
     for q in questions.iter_mut() {
-        resolve_names(original_input, &mut q.qname)?;
+        resolve_names(original_input, &mut q.qname, &mut HashSet::new())?;
     }
     for a in answers.iter_mut() {
-        resolve_names(original_input, &mut a.name)?;
+        resolve_names(original_input, &mut a.name, &mut HashSet::new())?;
     }
     for a in name_servers.iter_mut() {
-        resolve_names(original_input, &mut a.name)?;
+        resolve_names(original_input, &mut a.name, &mut HashSet::new())?;
     }
     for a in additional_records.iter_mut() {
-        resolve_names(original_input, &mut a.name)?;
+        resolve_names(original_input, &mut a.name, &mut HashSet::new())?;
     }
 
     Ok(Message {
@@ -810,8 +812,6 @@ fn str_to_bytes(s: &str, buf: &mut Vec<u8>) -> Result<usize> {
     Ok(byte_count)
 }
 
-/// Splits the string by the '.' character and appends each section preceeded by
-/// its length. This function will append the NULL terminating byte.
 #[instrument]
 fn flatten_to_string(names: &Vec<Name>) -> String {
     let mut name = String::new();
@@ -841,11 +841,11 @@ fn flatten_to_string(names: &Vec<Name>) -> String {
 /// This just does a single level of pointer resolution TODO - we should
 /// dereference all of the pointers, rather than a single level.
 #[instrument(skip(input))]
-fn resolve_names<'a>(input: &[u8], names: &mut Vec<Name>) -> Result<()> {
-    use std::collections::HashSet;
-
-    let mut seen_ptrs = HashSet::new();
-
+fn resolve_names<'a>(
+    input: &[u8],
+    names: &mut Vec<Name>,
+    seen_ptrs: &mut HashSet<u16>,
+) -> Result<()> {
     for n in names.iter_mut() {
         match n {
             Name::Pointer(ptr) => {
@@ -859,7 +859,10 @@ fn resolve_names<'a>(input: &[u8], names: &mut Vec<Name>) -> Result<()> {
                     });
                 }
                 seen_ptrs.insert(*ptr);
-                let (_, names) = read_names(&input[*ptr as usize..input.len()])?;
+                let (_, mut names) = read_names(&input[*ptr as usize..input.len()])?;
+
+                resolve_names(input, &mut names, seen_ptrs)?;
+
                 *n = Name::ResolvedPtr(names);
             }
             _ => {}
@@ -871,9 +874,19 @@ fn resolve_names<'a>(input: &[u8], names: &mut Vec<Name>) -> Result<()> {
 #[cfg(test)]
 mod test {
     use super::Message;
+    use std::sync::Once;
+
+    static INIT: Once = Once::new();
+
+    fn setup() {
+        INIT.call_once(|| {
+            tracing_subscriber::fmt::init();
+        });
+    }
 
     #[test]
     fn test_parse_question() {
+        setup();
         let input: &[u8] = &[
             83, 202, // ID
             1, 32, // Flags
@@ -924,6 +937,7 @@ mod test {
 
     #[test]
     fn test_parse_answer() {
+        setup();
         let input: &[u8] = &[
             0xdb, 0x42, 0x81, 0x80, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x03, 0x77,
             0x77, 0x77, 0x0c, 0x6e, 0x6f, 0x72, 0x74, 0x68, 0x65, 0x61, 0x73, 0x74, 0x65, 0x72,
@@ -966,8 +980,7 @@ mod test {
 
     #[test]
     fn test_deserialize_serialize_deserialize() {
-        tracing_subscriber::fmt::init();
-
+        setup();
         let input: &[u8] = &[
             0xdb, 0x42, 0x81, 0x80, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x03, 0x77,
             0x77, 0x77, 0x0c, 0x6e, 0x6f, 0x72, 0x74, 0x68, 0x65, 0x61, 0x73, 0x74, 0x65, 0x72,
@@ -981,5 +994,62 @@ mod test {
         message.to_bytes(&mut buf).unwrap();
         let message2 = Message::from_bytes(&buf[..]).unwrap();
         assert_eq!(message, message2);
+    }
+
+    #[test]
+    fn test_deserialize_multi_answer() {
+        setup();
+        let input = &[
+            208, 7, // ID
+            129, 128, // flags
+            0, 1, // qdcount
+            0, 4, // ancount
+            0, 0, // nscount
+            0, 0, // arcount
+            // Question section
+            3, 119, 119, 119, // www
+            9, 109, 105, 99, 114, 111, 115, 111, 102, 116, // microsoft
+            3, 99, 111, 109, // com
+            0,   // terminator
+            0, 1, // qtype - A
+            0, 1, // qclass - IN
+            // Answer 1
+            192, 12, // Name - Pointer @ 12
+            0, 5, // type - CNAME
+            0, 1, // class - IN
+            0, 0, 5, 224, // ttl - 25
+            0, 35, // rdlength - 35
+            3, 119, 119, 119, 9, 109, 105, 99, 114, 111, 115, 111, 102, 116, 7, 99, 111, 109, 45,
+            99, 45, 51, 7, 101, 100, 103, 101, 107, 101, 121, 3, 110, 101, 116, 0, // rdata
+            // Answer 2
+            192, 47, // Name - Pointer @ 47
+            0, 5, // type - CNAME
+            0, 1, // class - IN
+            0, 0, 17, 174, // ttl - 75
+            0, 55, // rdlength - 55
+            3, 119, 119, 119, 9, 109, 105, 99, 114, 111, 115, 111, 102, 116, 7, 99, 111, 109, 45,
+            99, 45, 51, 7, 101, 100, 103, 101, 107, 101, 121, 3, 110, 101, 116, 11, 103, 108, 111,
+            98, 97, 108, 114, 101, 100, 105, 114, 6, 97, 107, 97, 100, 110, 115, 192,
+            77, // rdata - with pointer to 77 at end
+            // Answer 3
+            192, 94, // name @ 92
+            0, 5, // type - cname
+            0, 1, // class IN
+            0, 0, 3, 102, // ttl - 14
+            0, 25, // rdlength - 25
+            6, 101, 49, 51, 54, 55, 56, 4, 100, 115, 112, 98, 10, 97, 107, 97, 109, 97, 105, 101,
+            100, 103, 101, 192, 77, // rdata w/ pointer to 77
+            // Answer 4
+            192, 161, // name @ 161
+            0, 1, // type - A
+            0, 1, // class - IN
+            0, 0, 0, 5, // ttl - 5
+            0, 4, // rdlength - 4
+            23, 40, 73, 65, // rdata
+        ];
+
+        let message = Message::from_bytes(input).unwrap();
+
+        println!("{:?}", message)
     }
 }
