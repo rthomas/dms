@@ -135,12 +135,14 @@ enum Name {
 
 impl Header {
     #[instrument(skip(buf))]
-    fn to_bytes(&self, buf: &mut Vec<u8>) -> Result<()> {
+    fn to_bytes(&self, buf: &mut Vec<u8>) -> Result<usize> {
         let mut pair = self.id.to_be_bytes();
         buf.push(pair[0]);
         buf.push(pair[1]);
 
-        self.flags.to_bytes(buf)?;
+        let mut byte_count = 2;
+
+        byte_count += self.flags.to_bytes(buf)?;
 
         pair = self.qd_count.to_be_bytes();
         buf.push(pair[0]);
@@ -155,13 +157,15 @@ impl Header {
         buf.push(pair[0]);
         buf.push(pair[1]);
 
-        Ok(())
+        byte_count += 8;
+
+        Ok(byte_count)
     }
 }
 
 impl Flags {
     #[instrument(skip(buf))]
-    fn to_bytes(&self, buf: &mut Vec<u8>) -> Result<()> {
+    fn to_bytes(&self, buf: &mut Vec<u8>) -> Result<usize> {
         let mut val = 0u8;
         if self.qr {
             val |= 1 << 7;
@@ -189,42 +193,47 @@ impl Flags {
         }
         val |= self.rcode.as_u8();
         buf.push(val);
-        Ok(())
+        Ok(2)
     }
 }
 
 impl Question {
     #[instrument(skip(buf))]
-    fn to_bytes(&self, buf: &mut Vec<u8>) -> Result<()> {
-        str_to_bytes(&self.qname, buf)?;
-        self.qtype.to_bytes(buf);
-        self.qclass.to_bytes(buf);
+    fn to_bytes(&self, buf: &mut Vec<u8>) -> Result<usize> {
+        let mut byte_count = str_to_bytes(&self.qname, buf)?;
+        byte_count += self.qtype.to_bytes(buf);
+        byte_count += self.qclass.to_bytes(buf);
 
-        Ok(())
+        Ok(byte_count)
     }
 }
 
 impl ResourceRecord {
     #[instrument(skip(buf))]
-    fn to_bytes(&self, buf: &mut Vec<u8>) -> Result<()> {
+    fn to_bytes(&self, buf: &mut Vec<u8>) -> Result<usize> {
         // TODO here is where we would implement the Message Compression -
         // though we will need to wire through a map of the strings and
         // locations. It is perfectly fine with the spec to not implement this.
-        str_to_bytes(&self.name, buf)?;
-        self.rtype.to_bytes(buf);
-        self.class.to_bytes(buf);
+        let mut byte_count = str_to_bytes(&self.name, buf)?;
+        byte_count += self.rtype.to_bytes(buf);
+        byte_count += self.class.to_bytes(buf);
+
         let ttl = self.ttl.to_be_bytes();
         buf.push(ttl[0]);
         buf.push(ttl[1]);
         buf.push(ttl[2]);
         buf.push(ttl[3]);
+        byte_count += 4;
 
         let rdlength = (self.rdata.len() as u16).to_be_bytes();
         buf.push(rdlength[0]);
         buf.push(rdlength[1]);
+        byte_count += 2;
 
         buf.extend_from_slice(&self.rdata[..]);
-        Ok(())
+        byte_count += self.rdata.len();
+
+        Ok(byte_count)
     }
 }
 
@@ -283,7 +292,7 @@ impl RCode {
 
 impl Type {
     #[instrument(skip(buf))]
-    fn to_bytes(&self, buf: &mut Vec<u8>) {
+    fn to_bytes(&self, buf: &mut Vec<u8>) -> usize {
         let val = match self {
             Self::A => 1u16.to_be_bytes(),
             Self::NS => 2u16.to_be_bytes(),
@@ -309,6 +318,7 @@ impl Type {
         };
         buf.push(val[0]);
         buf.push(val[1]);
+        2
     }
 }
 
@@ -375,7 +385,7 @@ impl fmt::Display for Type {
 
 impl Class {
     #[instrument(skip(buf))]
-    fn to_bytes(&self, buf: &mut Vec<u8>) {
+    fn to_bytes(&self, buf: &mut Vec<u8>) -> usize {
         let val = match self {
             Class::IN => 1u16.to_be_bytes(),
             Class::CS => 2u16.to_be_bytes(),
@@ -386,6 +396,7 @@ impl Class {
         };
         buf.push(val[0]);
         buf.push(val[1]);
+        2
     }
 }
 
@@ -415,28 +426,30 @@ impl Message {
         Ok(message)
     }
 
-    /// Serializes the Message to bytes into the provided buffer.
+    /// Serializes the Message to bytes into the provided buffer, returning the
+    /// number of bytes written to the buffer.
     #[instrument(skip(buf))]
-    // TODO - to_bytes should return a u8
-    pub fn to_bytes(&self, buf: &mut Vec<u8>) -> Result<()> {
-        self.header.to_bytes(buf)?;
+    pub fn to_bytes(&self, buf: &mut Vec<u8>) -> Result<usize> {
+        let mut byte_count = self.header.to_bytes(buf)?;
         for q in self.questions.iter() {
-            q.to_bytes(buf)?;
+            byte_count += q.to_bytes(buf)?;
         }
         for a in self.answers.iter() {
-            a.to_bytes(buf)?;
+            byte_count += a.to_bytes(buf)?;
         }
         for n in self.name_servers.iter() {
-            n.to_bytes(buf)?;
+            byte_count += n.to_bytes(buf)?;
         }
         for ar in self.additional_records.iter() {
-            ar.to_bytes(buf)?;
+            byte_count += ar.to_bytes(buf)?;
         }
 
-        // TODO - test if bytes written is greater than 512 and then truncate
-        // and set the tr bit.
+        if byte_count > 512 {
+            // TODO set the TR bit to true.
+            // Should we also truncate the buffer?
+        }
 
-        Ok(())
+        Ok(byte_count)
     }
 }
 
@@ -774,7 +787,8 @@ impl From<std::str::Utf8Error> for InvalidMessageError {
 }
 
 #[instrument(skip(buf))]
-fn str_to_bytes(s: &str, buf: &mut Vec<u8>) -> Result<()> {
+fn str_to_bytes(s: &str, buf: &mut Vec<u8>) -> Result<usize> {
+    let mut byte_count = 0;
     let name_parts = s.split(".");
     for name in name_parts {
         if name.len() > 63 {
@@ -785,12 +799,15 @@ fn str_to_bytes(s: &str, buf: &mut Vec<u8>) -> Result<()> {
         }
         let len = name.len() as u8;
         buf.push(len);
+        byte_count += 1;
         for b in name.bytes() {
             buf.push(b);
+            byte_count += 1;
         }
     }
     buf.push(0);
-    Ok(())
+    byte_count += 1;
+    Ok(byte_count)
 }
 
 /// Splits the string by the '.' character and appends each section preceeded by

@@ -79,18 +79,18 @@ async fn send_dns_request(msg: &Message) -> Result<Message> {
     socket.connect(&remote_addr).await?;
 
     let mut buf = Vec::with_capacity(512);
-    msg.to_bytes(&mut buf)?;
+    let len = msg.to_bytes(&mut buf)?;
 
     info!("Sending to {}", remote_addr);
-    socket.send(&buf).await?;
+    socket.send(&buf[0..len]).await?;
 
-    let mut buf = vec![0u8; 512];
+    let mut buf = vec![0u8; 1024];
     let len = socket.recv(&mut buf).await?;
 
     let r_message = match Message::from_bytes(&buf[0..len]) {
         Ok(m) => m,
         Err(e) => {
-            error!("Error: {}", e);
+            error!("Error parsing response from upstream DNS: {}", e);
             return Err(anyhow::Error::new(e));
         }
     };
