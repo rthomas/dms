@@ -1,7 +1,13 @@
+use bytes::Bytes;
+use futures::prelude::*;
+use futures_util::stream::SplitSink;
 use message::Message;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::UdpSocket;
+use tokio::sync::Mutex;
+use tokio_util::codec::BytesCodec;
+use tokio_util::udp::UdpFramed;
 use tracing::{error, info};
 
 mod message;
@@ -13,20 +19,25 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
     let local_addr = "127.0.0.1:8053";
-    let listener = Arc::new(UdpSocket::bind(&local_addr).await?);
+    let listener = UdpSocket::bind(&local_addr).await?;
+
+    let (sink, mut stream) = UdpFramed::new(listener, BytesCodec::new()).split();
+    let sink = Arc::new(Mutex::new(sink));
 
     loop {
-        println!("Waiting to accept...");
-        // RFC1035 - Limit length of 512 bytes, so just double it.
-        let mut buf = [0; 1024];
-        let (len, addr) = listener.recv_from(&mut buf).await?;
-        let l_clone = listener.clone();
+        info!("Waiting to recv...");
+        let (bytes, addr) = stream.next().await.unwrap()?;
+
+        let mut sink = sink.clone();
+
         tokio::spawn(async move {
-            match handle_request(&buf[0..len], &l_clone, addr).await {
+            match handle_request(bytes.as_ref(), &mut sink, addr).await {
                 Err(e) => {
                     error!("Error handling request: {}", e);
                 }
-                _ => (),
+                _ => {
+                    info!("Request handled!");
+                }
             }
         });
     }
@@ -34,18 +45,27 @@ async fn main() -> Result<()> {
 
 async fn handle_request(
     buf: &[u8],
-    local_socket: &UdpSocket,
+    local_socket: &mut Arc<Mutex<SplitSink<UdpFramed<BytesCodec>, (Bytes, SocketAddr)>>>,
     client_addr: SocketAddr,
 ) -> Result<()> {
     let message = Message::from_bytes(buf).unwrap();
-    info!("{}: {}", client_addr, message);
+    info!("{}: {:?}", client_addr, message);
 
     let r_message = send_dns_request(&message).await?;
 
     let mut buf = Vec::with_capacity(1024);
     r_message.to_bytes(&mut buf)?;
-    local_socket.connect(&client_addr).await?;
-    local_socket.send(&buf).await?;
+    info!("Sending to: {}", client_addr);
+
+    {
+        local_socket
+            .lock()
+            .await
+            .send((Bytes::copy_from_slice(&buf[..]), client_addr))
+            .await?;
+    }
+
+    info!("Sent");
     Ok(())
 }
 
@@ -55,19 +75,25 @@ async fn send_dns_request(msg: &Message) -> Result<Message> {
     let addr: SocketAddr = "0.0.0.0:0".parse()?;
     let socket = UdpSocket::bind(addr).await?;
 
-    let remote_addr: SocketAddr = "192.168.1.1:53".parse()?;
+    let remote_addr: SocketAddr = "8.8.8.8:53".parse()?;
     socket.connect(&remote_addr).await?;
 
-    let mut buf = Vec::with_capacity(1024);
+    let mut buf = Vec::with_capacity(512);
     msg.to_bytes(&mut buf)?;
 
     info!("Sending to {}", remote_addr);
     socket.send(&buf).await?;
 
-    let mut buf = vec![0u8; 1024];
-    socket.recv(&mut buf).await?;
+    let mut buf = vec![0u8; 512];
+    let len = socket.recv(&mut buf).await?;
 
-    let r_message = Message::from_bytes(&buf).unwrap();
-    info!("Got back: {}", r_message);
+    let r_message = match Message::from_bytes(&buf[0..len]) {
+        Ok(m) => m,
+        Err(e) => {
+            error!("Error: {}", e);
+            return Err(anyhow::Error::new(e));
+        }
+    };
+    info!("Got back: {:?}", r_message);
     Ok(r_message)
 }

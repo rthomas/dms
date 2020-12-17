@@ -6,6 +6,8 @@ use std::error::Error;
 use std::fmt;
 use tracing::{instrument, trace};
 
+type Result<T> = std::result::Result<T, InvalidMessageError>;
+
 #[derive(Debug, PartialEq)]
 pub struct Message {
     pub header: Header,
@@ -133,7 +135,7 @@ enum Name {
 
 impl Header {
     #[instrument(skip(buf))]
-    fn to_bytes(&self, buf: &mut Vec<u8>) -> Result<(), InvalidMessageError> {
+    fn to_bytes(&self, buf: &mut Vec<u8>) -> Result<()> {
         let mut pair = self.id.to_be_bytes();
         buf.push(pair[0]);
         buf.push(pair[1]);
@@ -159,7 +161,7 @@ impl Header {
 
 impl Flags {
     #[instrument(skip(buf))]
-    fn to_bytes(&self, buf: &mut Vec<u8>) -> Result<(), InvalidMessageError> {
+    fn to_bytes(&self, buf: &mut Vec<u8>) -> Result<()> {
         let mut val = 0u8;
         if self.qr {
             val |= 1 << 7;
@@ -193,7 +195,7 @@ impl Flags {
 
 impl Question {
     #[instrument(skip(buf))]
-    fn to_bytes(&self, buf: &mut Vec<u8>) -> Result<(), InvalidMessageError> {
+    fn to_bytes(&self, buf: &mut Vec<u8>) -> Result<()> {
         str_to_bytes(&self.qname, buf)?;
         self.qtype.to_bytes(buf);
         self.qclass.to_bytes(buf);
@@ -204,7 +206,7 @@ impl Question {
 
 impl ResourceRecord {
     #[instrument(skip(buf))]
-    fn to_bytes(&self, buf: &mut Vec<u8>) -> Result<(), InvalidMessageError> {
+    fn to_bytes(&self, buf: &mut Vec<u8>) -> Result<()> {
         // TODO here is where we would implement the Message Compression -
         // though we will need to wire through a map of the strings and
         // locations. It is perfectly fine with the spec to not implement this.
@@ -252,7 +254,7 @@ impl From<InnerResourceRecord> for ResourceRecord {
 
 impl OpCode {
     #[instrument]
-    fn as_u8(&self) -> Result<u8, InvalidMessageError> {
+    fn as_u8(&self) -> Result<u8> {
         match self {
             OpCode::Query => Ok(0),
             OpCode::IQuery => Ok(1),
@@ -340,7 +342,7 @@ impl From<u16> for Type {
 }
 
 impl fmt::Display for Type {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
         let disp = match self {
             Self::A => "A",
             Self::NS => "NS",
@@ -407,7 +409,7 @@ impl Message {
     /// This includes the dereferencing of rfc1035 Message Compression pointers,
     /// and collapsing the names into strings.
     #[instrument(skip(input))]
-    pub fn from_bytes<'a>(input: &'a [u8]) -> Result<Message, Box<dyn Error + 'a>> {
+    pub fn from_bytes<'a>(input: &[u8]) -> Result<Message> {
         let (_, message) = read_message(input)?;
 
         Ok(message)
@@ -415,7 +417,8 @@ impl Message {
 
     /// Serializes the Message to bytes into the provided buffer.
     #[instrument(skip(buf))]
-    pub fn to_bytes(&self, buf: &mut Vec<u8>) -> Result<(), InvalidMessageError> {
+    // TODO - to_bytes should return a u8
+    pub fn to_bytes(&self, buf: &mut Vec<u8>) -> Result<()> {
         self.header.to_bytes(buf)?;
         for q in self.questions.iter() {
             q.to_bytes(buf)?;
@@ -430,12 +433,15 @@ impl Message {
             ar.to_bytes(buf)?;
         }
 
+        // TODO - test if bytes written is greater than 512 and then truncate
+        // and set the tr bit.
+
         Ok(())
     }
 }
 
 impl fmt::Display for Message {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::result::Result<(), fmt::Error> {
         write!(f, "Message(id:{}) - ", self.header.id)?;
         if self.header.flags.qr {
             write!(f, "Response [")?;
@@ -483,82 +489,76 @@ fn read_u32(input: &[u8]) -> IResult<&[u8], u32> {
 
 #[instrument(skip(input))]
 fn read_flags(input: &[u8]) -> IResult<&[u8], Flags> {
-    map_res(
-        take_bytes(2usize),
-        |input| -> Result<Flags, Box<dyn Error>> {
-            trace!("reading flags");
-            use nom::bits::bits;
-            use nom::bits::complete::tag as tag_bits;
+    map_res(take_bytes(2usize), |input| -> Result<Flags> {
+        trace!("reading flags");
+        use nom::bits::bits;
+        use nom::bits::complete::tag as tag_bits;
 
-            use nom::combinator::map;
+        use nom::combinator::map;
 
-            let (_, (qr, opcode, aa, tc, rd, ra, ad, cd, rcode)) =
-                bits::<_, _, nom::error::Error<_>, nom::error::Error<_>, _>(|i| {
-                    let is_one = |s: u8| s == 1;
-                    let (i, qr) = map(take_bits(1usize), is_one)(i)?;
-                    let (i, opcode) = match map(take_bits(4usize), |s: u8| s)(i)? {
-                        (i, 0) => (i, OpCode::Query),
-                        (i, 1) => (i, OpCode::IQuery),
-                        (i, 2) => (i, OpCode::Status),
-                        (i, _) => (i, OpCode::Reserved),
-                    };
-                    let (i, aa) = map(take_bits(1usize), is_one)(i)?;
-                    let (i, tc) = map(take_bits(1usize), is_one)(i)?;
-                    let (i, rd) = map(take_bits(1usize), is_one)(i)?;
-                    let (i, ra) = map(take_bits(1usize), is_one)(i)?;
-                    let (i, _) = tag_bits(0, 1usize)(i)?;
-                    let (i, ad) = map(take_bits(1usize), is_one)(i)?;
-                    let (i, cd) = map(take_bits(1usize), is_one)(i)?;
-                    let (i, rcode) = match map(take_bits(4usize), |s: u8| s)(i)? {
-                        (i, 0) => (i, RCode::NoError),
-                        (i, 1) => (i, RCode::FormatError),
-                        (i, 2) => (i, RCode::ServerFailure),
-                        (i, 3) => (i, RCode::NameError),
-                        (i, 4) => (i, RCode::NotImplemented),
-                        (i, 5) => (i, RCode::Refused),
-                        (i, x) => (i, RCode::Unknown(x)),
-                    };
-                    Ok(((i), (qr, opcode, aa, tc, rd, ra, ad, cd, rcode)))
-                })(input)?;
+        let (_, (qr, opcode, aa, tc, rd, ra, ad, cd, rcode)) =
+            bits::<_, _, nom::error::Error<_>, nom::error::Error<_>, _>(|i| {
+                let is_one = |s: u8| s == 1;
+                let (i, qr) = map(take_bits(1usize), is_one)(i)?;
+                let (i, opcode) = match map(take_bits(4usize), |s: u8| s)(i)? {
+                    (i, 0) => (i, OpCode::Query),
+                    (i, 1) => (i, OpCode::IQuery),
+                    (i, 2) => (i, OpCode::Status),
+                    (i, _) => (i, OpCode::Reserved),
+                };
+                let (i, aa) = map(take_bits(1usize), is_one)(i)?;
+                let (i, tc) = map(take_bits(1usize), is_one)(i)?;
+                let (i, rd) = map(take_bits(1usize), is_one)(i)?;
+                let (i, ra) = map(take_bits(1usize), is_one)(i)?;
+                let (i, _) = tag_bits(0, 1usize)(i)?;
+                let (i, ad) = map(take_bits(1usize), is_one)(i)?;
+                let (i, cd) = map(take_bits(1usize), is_one)(i)?;
+                let (i, rcode) = match map(take_bits(4usize), |s: u8| s)(i)? {
+                    (i, 0) => (i, RCode::NoError),
+                    (i, 1) => (i, RCode::FormatError),
+                    (i, 2) => (i, RCode::ServerFailure),
+                    (i, 3) => (i, RCode::NameError),
+                    (i, 4) => (i, RCode::NotImplemented),
+                    (i, 5) => (i, RCode::Refused),
+                    (i, x) => (i, RCode::Unknown(x)),
+                };
+                Ok(((i), (qr, opcode, aa, tc, rd, ra, ad, cd, rcode)))
+            })(input)?;
 
-            Ok(Flags {
-                qr,
-                opcode,
-                aa,
-                tc,
-                rd,
-                ra,
-                ad,
-                cd,
-                rcode,
-            })
-        },
-    )(input)
+        Ok(Flags {
+            qr,
+            opcode,
+            aa,
+            tc,
+            rd,
+            ra,
+            ad,
+            cd,
+            rcode,
+        })
+    })(input)
 }
 
 #[instrument(skip(input))]
 fn read_header(input: &[u8]) -> IResult<&[u8], Header> {
-    map_res(
-        take_bytes(12usize),
-        |input| -> Result<Header, Box<dyn Error>> {
-            trace!("reading header");
-            let (input, id) = read_u16(input)?;
-            let (input, flags) = read_flags(input)?;
-            let (input, qd_count) = read_u16(input)?;
-            let (input, an_count) = read_u16(input)?;
-            let (input, ns_count) = read_u16(input)?;
-            let (_, ar_count) = read_u16(input)?;
+    map_res(take_bytes(12usize), |input| -> Result<Header> {
+        trace!("reading header");
+        let (input, id) = read_u16(input)?;
+        let (input, flags) = read_flags(input)?;
+        let (input, qd_count) = read_u16(input)?;
+        let (input, an_count) = read_u16(input)?;
+        let (input, ns_count) = read_u16(input)?;
+        let (_, ar_count) = read_u16(input)?;
 
-            Ok(Header {
-                id,
-                flags,
-                qd_count,
-                an_count,
-                ns_count,
-                ar_count,
-            })
-        },
-    )(input)
+        Ok(Header {
+            id,
+            flags,
+            qd_count,
+            an_count,
+            ns_count,
+            ar_count,
+        })
+    })(input)
 }
 
 #[instrument(skip(input))]
@@ -607,7 +607,7 @@ fn read_names(input: &[u8]) -> IResult<&[u8], Vec<Name>> {
                     break;
                 }
 
-                let (i, name) = map_res(take_bytes(length), |i| -> Result<Name, Box<dyn Error>> {
+                let (i, name) = map_res(take_bytes(length), |i| -> Result<Name> {
                     Ok(Name::Name(std::str::from_utf8(i)?.to_string()))
                 })(i)?;
                 qname.push(name);
@@ -681,7 +681,7 @@ fn read_message(input: &[u8]) -> IResult<&[u8], Message> {
 }
 
 #[instrument(skip(input))]
-fn as_message<'a>(input: &'a [u8]) -> Result<Message, Box<dyn Error + 'a>> {
+fn as_message<'a>(input: &[u8]) -> Result<Message> {
     let original_input = input;
     let (mut input, header) = read_header(input)?;
 
@@ -746,6 +746,8 @@ pub struct InvalidMessageError {
     message: String,
 }
 
+impl Error for InvalidMessageError {}
+
 impl InvalidMessageError {
     fn new(message: String) -> Self {
         InvalidMessageError { message }
@@ -753,16 +755,26 @@ impl InvalidMessageError {
 }
 
 impl fmt::Display for InvalidMessageError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
         write!(f, "InvalidMessageError: {}", self.message)?;
         Ok(())
     }
 }
 
-impl Error for InvalidMessageError {}
+impl<E: std::fmt::Debug> From<nom::Err<E>> for InvalidMessageError {
+    fn from(error: nom::Err<E>) -> Self {
+        Self::new(format!("Invalid Message: {:?}", error))
+    }
+}
+
+impl From<std::str::Utf8Error> for InvalidMessageError {
+    fn from(error: std::str::Utf8Error) -> Self {
+        Self::new(format!("Invalid Message Encoding: {}", error))
+    }
+}
 
 #[instrument(skip(buf))]
-fn str_to_bytes(s: &str, buf: &mut Vec<u8>) -> Result<(), InvalidMessageError> {
+fn str_to_bytes(s: &str, buf: &mut Vec<u8>) -> Result<()> {
     let name_parts = s.split(".");
     for name in name_parts {
         if name.len() > 63 {
@@ -812,7 +824,7 @@ fn flatten_to_string(names: &Vec<Name>) -> String {
 /// This just does a single level of pointer resolution TODO - we should
 /// dereference all of the pointers, rather than a single level.
 #[instrument(skip(input))]
-fn resolve_names<'a>(input: &'a [u8], names: &mut Vec<Name>) -> Result<(), Box<dyn Error + 'a>> {
+fn resolve_names<'a>(input: &[u8], names: &mut Vec<Name>) -> Result<()> {
     use std::collections::HashSet;
 
     let mut seen_ptrs = HashSet::new();
@@ -821,13 +833,13 @@ fn resolve_names<'a>(input: &'a [u8], names: &mut Vec<Name>) -> Result<(), Box<d
         match n {
             Name::Pointer(ptr) => {
                 if seen_ptrs.contains(ptr) {
-                    return Err(Box::new(InvalidMessageError {
+                    return Err(InvalidMessageError {
                         message: format!(
                             "Circular reference - detected a pointer we have seen already: {}",
                             *ptr
                         )
                         .to_string(),
-                    }));
+                    });
                 }
                 seen_ptrs.insert(*ptr);
                 let (_, names) = read_names(&input[*ptr as usize..input.len()])?;
