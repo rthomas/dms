@@ -1017,7 +1017,7 @@ mod test {
             192, 12, // Name - Pointer @ 12
             0, 5, // type - CNAME
             0, 1, // class - IN
-            0, 0, 5, 224, // ttl - 25
+            0, 0, 5, 224, // ttl - 1504
             0, 35, // rdlength - 35
             3, 119, 119, 119, 9, 109, 105, 99, 114, 111, 115, 111, 102, 116, 7, 99, 111, 109, 45,
             99, 45, 51, 7, 101, 100, 103, 101, 107, 101, 121, 3, 110, 101, 116, 0, // rdata
@@ -1025,7 +1025,7 @@ mod test {
             192, 47, // Name - Pointer @ 47
             0, 5, // type - CNAME
             0, 1, // class - IN
-            0, 0, 17, 174, // ttl - 75
+            0, 0, 17, 174, // ttl - 4526
             0, 55, // rdlength - 55
             3, 119, 119, 119, 9, 109, 105, 99, 114, 111, 115, 111, 102, 116, 7, 99, 111, 109, 45,
             99, 45, 51, 7, 101, 100, 103, 101, 107, 101, 121, 3, 110, 101, 116, 11, 103, 108, 111,
@@ -1035,7 +1035,7 @@ mod test {
             192, 94, // name @ 92
             0, 5, // type - cname
             0, 1, // class IN
-            0, 0, 3, 102, // ttl - 14
+            0, 0, 3, 102, // ttl - 870
             0, 25, // rdlength - 25
             6, 101, 49, 51, 54, 55, 56, 4, 100, 115, 112, 98, 10, 97, 107, 97, 109, 97, 105, 101,
             100, 103, 101, 192, 77, // rdata w/ pointer to 77
@@ -1050,6 +1050,54 @@ mod test {
 
         let message = Message::from_bytes(input).unwrap();
 
-        println!("{:?}", message)
+        assert_eq!(message.header.id, 53255);
+        assert!(message.header.flags.qr);
+        assert_eq!(message.header.flags.opcode, crate::message::OpCode::Query);
+        assert!(!message.header.flags.aa);
+        assert!(!message.header.flags.tc);
+        assert!(message.header.flags.rd);
+        assert!(message.header.flags.ra);
+        assert!(!message.header.flags.ad);
+        assert!(!message.header.flags.cd);
+        assert_eq!(message.header.flags.rcode, crate::message::RCode::NoError);
+        assert_eq!(message.header.qd_count, 1);
+        assert_eq!(message.header.an_count, 4);
+        assert_eq!(message.header.ns_count, 0);
+        assert_eq!(message.header.ar_count, 0);
+
+        // Question
+        assert_eq!(message.questions[0].qname, "www.microsoft.com");
+        assert_eq!(message.questions[0].qtype, crate::message::Type::A);
+        assert_eq!(message.questions[0].qclass, crate::message::Class::IN);
+
+        // Answer 1
+        assert_eq!(message.answers[0].name, "www.microsoft.com");
+        assert_eq!(message.answers[0].rtype, crate::message::Type::CNAME);
+        assert_eq!(message.answers[0].class, crate::message::Class::IN);
+        assert_eq!(message.answers[0].ttl, 1504);
+
+        // Answer 2
+        assert_eq!(message.answers[1].name, "www.microsoft.com-c-3.edgekey.net");
+        assert_eq!(message.answers[1].rtype, crate::message::Type::CNAME);
+        assert_eq!(message.answers[1].class, crate::message::Class::IN);
+        assert_eq!(message.answers[1].ttl, 4526);
+
+        // Answer 3
+        assert_eq!(
+            message.answers[2].name,
+            "www.microsoft.com-c-3.edgekey.net.globalredir.akadns.net"
+        );
+        assert_eq!(message.answers[2].rtype, crate::message::Type::CNAME);
+        assert_eq!(message.answers[2].class, crate::message::Class::IN);
+        assert_eq!(message.answers[2].ttl, 870);
+
+        // Answer 4
+        assert_eq!(message.answers[3].name, "e13678.dspb.akamaiedge.net");
+        assert_eq!(message.answers[3].rtype, crate::message::Type::A);
+        assert_eq!(message.answers[3].class, crate::message::Class::IN);
+        assert_eq!(message.answers[3].ttl, 5);
+        assert_eq!(message.answers[3].rdata, vec![23, 40, 73, 65]);
+
+        println!("{:?}", message);
     }
 }
