@@ -47,27 +47,30 @@ impl From<InnerQuestion> for Question {
     }
 }
 
-impl From<InnerResourceRecord> for ResourceRecord {
-    #[instrument]
-    fn from(irr: InnerResourceRecord) -> Self {
-        let rdata = match irr.rtype {
-            Type::A => RData::A(Ipv4Addr::new(
-                irr.rdata[0],
-                irr.rdata[1],
-                irr.rdata[2],
-                irr.rdata[3],
-            )),
-            _ => RData::Raw(irr.rdata),
-        };
-
-        ResourceRecord {
-            name: flatten_to_string(&irr.name),
-            rtype: irr.rtype,
-            class: irr.class,
-            ttl: irr.ttl,
-            rdata: rdata,
+fn from_irr(input: &[u8], irr: InnerResourceRecord) -> Result<ResourceRecord> {
+    let rdata = match irr.rtype {
+        Type::A => RData::A(Ipv4Addr::new(
+            irr.rdata[0],
+            irr.rdata[1],
+            irr.rdata[2],
+            irr.rdata[3],
+        )),
+        Type::CNAME => {
+            let (_, mut names) = read_names(&irr.rdata)?;
+            resolve_names(input, &mut names, &mut HashSet::new())?;
+            let name = flatten_to_string(&names);
+            RData::CNAME(name)
         }
-    }
+        _ => RData::Raw(irr.rdata),
+    };
+
+    Ok(ResourceRecord {
+        name: flatten_to_string(&irr.name),
+        rtype: irr.rtype,
+        class: irr.class,
+        ttl: irr.ttl,
+        rdata: rdata,
+    })
 }
 
 #[instrument(skip(input))]
@@ -334,12 +337,18 @@ fn as_message<'a>(input: &[u8]) -> Result<Message> {
     Ok(Message {
         header,
         questions: questions.drain(..).map(Question::from).collect(),
-        answers: answers.drain(..).map(ResourceRecord::from).collect(),
-        name_servers: name_servers.drain(..).map(ResourceRecord::from).collect(),
+        answers: answers
+            .drain(..)
+            .map(|irr| from_irr(&original_input, irr))
+            .collect::<Result<Vec<ResourceRecord>>>()?,
+        name_servers: name_servers
+            .drain(..)
+            .map(|irr| from_irr(&original_input, irr))
+            .collect::<Result<Vec<ResourceRecord>>>()?,
         additional_records: additional_records
             .drain(..)
-            .map(ResourceRecord::from)
-            .collect(),
+            .map(|irr| from_irr(&original_input, irr))
+            .collect::<Result<Vec<ResourceRecord>>>()?,
     })
 }
 

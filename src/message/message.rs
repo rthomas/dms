@@ -1,9 +1,8 @@
 use crate::message::error::MessageError;
 use crate::message::parser;
-use fmt::Display;
 use std::fmt;
 use std::net::Ipv4Addr;
-use tracing::instrument;
+use tracing::{instrument, trace};
 
 type Result<T> = std::result::Result<T, MessageError>;
 
@@ -143,6 +142,8 @@ impl Header {
 
         byte_count += 8;
 
+        trace!("Wrote {} bytes", byte_count);
+
         Ok(byte_count)
     }
 }
@@ -177,29 +178,28 @@ impl Flags {
         }
         val |= self.rcode.as_u8();
         buf.push(val);
+
+        trace!("Wrote 2 bytes");
+
         Ok(2)
     }
 }
 
 impl RData {
-    fn to_bytes(&self, buf: &mut Vec<u8>) -> usize {
+    #[instrument(skip(buf))]
+    fn to_bytes(&self, buf: &mut Vec<u8>) -> Result<usize> {
+        trace!("Writing {}", self);
+
         match self {
             RData::Raw(v) => {
                 buf.extend(v);
-                v.len()
+                Ok(v.len())
             }
             RData::A(v4) => {
                 buf.extend_from_slice(&v4.octets());
-                4
+                Ok(4)
             }
-            _ => todo!(),
-        }
-    }
-
-    fn len(&self) -> usize {
-        match self {
-            RData::Raw(v) => v.len(),
-            RData::A(_) => 4,
+            RData::CNAME(s) => str_to_bytes(s, buf),
             _ => todo!(),
         }
     }
@@ -210,6 +210,7 @@ impl fmt::Display for RData {
         match self {
             RData::Raw(v) => write!(f, "Raw({:?})", v),
             RData::A(v4) => write!(f, "A({})", v4),
+            RData::CNAME(s) => write!(f, "CNAME({})", s),
             _ => todo!(),
         }
     }
@@ -221,6 +222,8 @@ impl Question {
         let mut byte_count = str_to_bytes(&self.qname, buf)?;
         byte_count += self.qtype.to_bytes(buf);
         byte_count += self.qclass.to_bytes(buf);
+
+        trace!("Wrote {} bytes", byte_count);
 
         Ok(byte_count)
     }
@@ -243,12 +246,20 @@ impl ResourceRecord {
         buf.push(ttl[3]);
         byte_count += 4;
 
-        let rdlength = (self.rdata.len() as u16).to_be_bytes();
+        // We need this temp (rdata) buffer here as we don't know how long the
+        // rdata will be until we convert it to bytes. We need this to get the
+        // length of it, before we write the length.
+        let mut rdata: Vec<u8> = Vec::with_capacity(255);
+        let rdlength = self.rdata.to_bytes(&mut rdata)?;
+        byte_count += rdlength;
+
+        let rdlength = (rdlength as u16).to_be_bytes();
         buf.push(rdlength[0]);
         buf.push(rdlength[1]);
         byte_count += 2;
+        buf.extend(rdata);
 
-        byte_count += self.rdata.to_bytes(buf);
+        trace!("Wrote {} bytes", byte_count);
 
         Ok(byte_count)
     }
@@ -309,6 +320,9 @@ impl Type {
         };
         buf.push(val[0]);
         buf.push(val[1]);
+
+        trace!("Wrote 2 bytes");
+
         2
     }
 }
@@ -387,6 +401,9 @@ impl Class {
         };
         buf.push(val[0]);
         buf.push(val[1]);
+
+        trace!("Wrote 2 bytes");
+
         2
     }
 }
@@ -414,6 +431,8 @@ impl Message {
     pub fn from_bytes<'a>(input: &[u8]) -> Result<Message> {
         let (_, message) = parser::read_message(input)?;
 
+        trace!("Read input as: {}", message);
+
         Ok(message)
     }
 
@@ -439,6 +458,8 @@ impl Message {
             // TODO set the TR bit to true.
             // Should we also truncate the buffer?
         }
+
+        trace!("Wrote {} bytes", byte_count);
 
         Ok(byte_count)
     }
@@ -701,12 +722,22 @@ mod test {
         assert_eq!(message.answers[0].rtype, Type::CNAME);
         assert_eq!(message.answers[0].class, Class::IN);
         assert_eq!(message.answers[0].ttl, 1504);
+        assert_eq!(
+            message.answers[0].rdata,
+            RData::CNAME(String::from("www.microsoft.com-c-3.edgekey.net"))
+        );
 
         // Answer 2
         assert_eq!(message.answers[1].name, "www.microsoft.com-c-3.edgekey.net");
         assert_eq!(message.answers[1].rtype, Type::CNAME);
         assert_eq!(message.answers[1].class, Class::IN);
         assert_eq!(message.answers[1].ttl, 4526);
+        assert_eq!(
+            message.answers[1].rdata,
+            RData::CNAME(String::from(
+                "www.microsoft.com-c-3.edgekey.net.globalredir.akadns.net"
+            ))
+        );
 
         // Answer 3
         assert_eq!(
@@ -716,6 +747,10 @@ mod test {
         assert_eq!(message.answers[2].rtype, Type::CNAME);
         assert_eq!(message.answers[2].class, Class::IN);
         assert_eq!(message.answers[2].ttl, 870);
+        assert_eq!(
+            message.answers[2].rdata,
+            RData::CNAME(String::from("e13678.dspb.akamaiedge.net"))
+        );
 
         // Answer 4
         assert_eq!(message.answers[3].name, "e13678.dspb.akamaiedge.net");
@@ -728,5 +763,36 @@ mod test {
         );
 
         println!("{:?}", message);
+    }
+
+    #[test]
+    fn test_deserialize_no_compression() {
+        let input = &[
+            50, 87, 129, 128, 0, 1, 0, 4, 0, 0, 0, 0, // Question
+            3, 119, 119, 119, 9, 109, 105, 99, 114, 111, 115, 111, 102, 116, 3, 99, 111, 109, 0, 0,
+            1, 0, 1, // Answer
+            3, 119, 119, 119, 9, 109, 105, 99, 114, 111, 115, 111, 102, 116, 3, 99, 111, 109, 0, 0,
+            5, 0, 1, // cname, in
+            0, 0, 6, 97, //ttl
+            0, 33, //rdlength
+            3, 119, 119, 119, 9, 109, 105, 99, 114, 111, 115, 111, 102, 116, 7, 99, 111, 109, 45,
+            99, 45, 51, 7, 101, 100, 103, 101, 107, 101, 121, 3, 110, 101, 116, 0, 3, 119, 119,
+            119, 9, 109, 105, 99, 114, 111, 115, 111, 102, 116, 7, 99, 111, 109, 45, 99, 45, 51, 7,
+            101, 100, 103, 101, 107, 101, 121, 3, 110, 101, 116, 0, 0, 5, 0, 1, 0, 0, 17, 49, 0,
+            56, 3, 119, 119, 119, 9, 109, 105, 99, 114, 111, 115, 111, 102, 116, 7, 99, 111, 109,
+            45, 99, 45, 51, 7, 101, 100, 103, 101, 107, 101, 121, 3, 110, 101, 116, 11, 103, 108,
+            111, 98, 97, 108, 114, 101, 100, 105, 114, 6, 97, 107, 97, 100, 110, 115, 3, 110, 101,
+            116, 0, 3, 119, 119, 119, 9, 109, 105, 99, 114, 111, 115, 111, 102, 116, 7, 99, 111,
+            109, 45, 99, 45, 51, 7, 101, 100, 103, 101, 107, 101, 121, 3, 110, 101, 116, 11, 103,
+            108, 111, 98, 97, 108, 114, 101, 100, 105, 114, 6, 97, 107, 97, 100, 110, 115, 3, 110,
+            101, 116, 0, 0, 5, 0, 1, 0, 0, 2, 224, 0, 26, 6, 101, 49, 51, 54, 55, 56, 4, 100, 115,
+            112, 98, 10, 97, 107, 97, 109, 97, 105, 101, 100, 103, 101, 3, 110, 101, 116, 0, 6,
+            101, 49, 51, 54, 55, 56, 4, 100, 115, 112, 98, 10, 97, 107, 97, 109, 97, 105, 101, 100,
+            103, 101, 3, 110, 101, 116, 0, 0, 1, 0, 1, 0, 0, 0, 5, 0, 4, 23, 202, 168, 212,
+        ];
+
+        let message = Message::from_bytes(input).unwrap();
+
+        println!("{:#?}", message)
     }
 }

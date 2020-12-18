@@ -56,6 +56,7 @@ async fn handle_request(
     let mut buf = Vec::with_capacity(1024);
     let len = r_message.to_bytes(&mut buf)?;
     info!("Sending to: {}, length: {}", client_addr, len);
+    info!("Sending bytes: {:?}", buf);
 
     {
         local_socket
