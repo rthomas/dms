@@ -1,13 +1,14 @@
 use crate::message::error::MessageError;
 use crate::message::flatten_to_string;
 use crate::message::message::{
-    Class, Flags, Header, Message, OpCode, Question, RCode, ResourceRecord, Type,
+    Class, Flags, Header, Message, OpCode, Question, RCode, RData, ResourceRecord, Type,
 };
 use nom::bits::complete::take as take_bits;
 use nom::bytes::complete::take as take_bytes;
 use nom::combinator::map_res;
 use nom::IResult;
 use std::collections::HashSet;
+use std::net::Ipv4Addr;
 use tracing::{instrument, trace};
 
 type Result<T> = std::result::Result<T, MessageError>;
@@ -49,12 +50,22 @@ impl From<InnerQuestion> for Question {
 impl From<InnerResourceRecord> for ResourceRecord {
     #[instrument]
     fn from(irr: InnerResourceRecord) -> Self {
+        let rdata = match irr.rtype {
+            Type::A => RData::A(Ipv4Addr::new(
+                irr.rdata[0],
+                irr.rdata[1],
+                irr.rdata[2],
+                irr.rdata[3],
+            )),
+            _ => RData::Raw(irr.rdata),
+        };
+
         ResourceRecord {
             name: flatten_to_string(&irr.name),
             rtype: irr.rtype,
             class: irr.class,
             ttl: irr.ttl,
-            rdata: irr.rdata,
+            rdata: rdata,
         }
     }
 }

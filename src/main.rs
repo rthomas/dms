@@ -49,7 +49,7 @@ async fn handle_request(
     client_addr: SocketAddr,
 ) -> Result<()> {
     let message = Message::from_bytes(buf).unwrap();
-    info!("{}: {:?}", client_addr, message);
+    info!("{}: {}", client_addr, message);
 
     let r_message = send_dns_request(&message).await?;
 
@@ -94,6 +94,6 @@ async fn send_dns_request(msg: &Message) -> Result<Message> {
             return Err(anyhow::Error::new(e));
         }
     };
-    info!("Got back: {:?}", r_message);
+    info!("Got back: {}", r_message);
     Ok(r_message)
 }

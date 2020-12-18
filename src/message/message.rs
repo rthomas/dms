@@ -1,6 +1,8 @@
 use crate::message::error::MessageError;
 use crate::message::parser;
+use fmt::Display;
 use std::fmt;
+use std::net::Ipv4Addr;
 use tracing::instrument;
 
 type Result<T> = std::result::Result<T, MessageError>;
@@ -51,7 +53,14 @@ pub struct ResourceRecord {
     pub class: Class,
     pub ttl: u32,
     // TODO - Update this to be an enum with the actual decoded data.
-    pub rdata: Vec<u8>,
+    pub rdata: RData,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum RData {
+    A(Ipv4Addr),
+    CNAME(String),
+    Raw(Vec<u8>),
 }
 
 #[derive(Debug, PartialEq)]
@@ -172,6 +181,40 @@ impl Flags {
     }
 }
 
+impl RData {
+    fn to_bytes(&self, buf: &mut Vec<u8>) -> usize {
+        match self {
+            RData::Raw(v) => {
+                buf.extend(v);
+                v.len()
+            }
+            RData::A(v4) => {
+                buf.extend_from_slice(&v4.octets());
+                4
+            }
+            _ => todo!(),
+        }
+    }
+
+    fn len(&self) -> usize {
+        match self {
+            RData::Raw(v) => v.len(),
+            RData::A(_) => 4,
+            _ => todo!(),
+        }
+    }
+}
+
+impl fmt::Display for RData {
+    fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
+        match self {
+            RData::Raw(v) => write!(f, "Raw({:?})", v),
+            RData::A(v4) => write!(f, "A({})", v4),
+            _ => todo!(),
+        }
+    }
+}
+
 impl Question {
     #[instrument(skip(buf))]
     fn to_bytes(&self, buf: &mut Vec<u8>) -> Result<usize> {
@@ -205,8 +248,7 @@ impl ResourceRecord {
         buf.push(rdlength[1]);
         byte_count += 2;
 
-        buf.extend_from_slice(&self.rdata[..]);
-        byte_count += self.rdata.len();
+        byte_count += self.rdata.to_bytes(buf);
 
         Ok(byte_count)
     }
@@ -407,23 +449,20 @@ impl fmt::Display for Message {
         write!(f, "Message(id:{}) - ", self.header.id)?;
         if self.header.flags.qr {
             write!(f, "Response [")?;
-            for a in self.answers.iter() {
-                write!(f, "{} => {}(", a.name, a.rtype)?;
-                match a.rtype {
-                    Type::A => write!(
-                        f,
-                        "{}.{}.{}.{}",
-                        a.rdata[0], a.rdata[1], a.rdata[2], a.rdata[3]
-                    )?,
-                    _ => {}
+            for (i, a) in self.answers.iter().enumerate() {
+                if i != 0 {
+                    write!(f, ", ")?;
                 }
-                write!(f, "), ")?;
+                write!(f, "{} => {}", a.name, a.rdata)?;
             }
             write!(f, "]")?;
         } else {
             write!(f, "Query [")?;
-            for q in self.questions.iter() {
-                write!(f, "{}({}), ", q.qname, q.qtype)?;
+            for (i, q) in self.questions.iter().enumerate() {
+                if i != 0 {
+                    write!(f, ", ")?;
+                }
+                write!(f, "{}({})", q.qname, q.qtype)?;
             }
             write!(f, "]")?;
         }
@@ -557,7 +596,10 @@ mod test {
         assert_eq!(message.answers[0].rtype, Type::A);
         assert_eq!(message.answers[0].class, Class::IN);
         assert_eq!(message.answers[0].ttl, 600);
-        assert_eq!(message.answers[0].rdata, vec![155, 33, 17, 68]);
+        assert_eq!(
+            message.answers[0].rdata,
+            RData::A(Ipv4Addr::new(155, 33, 17, 68))
+        );
 
         println!("{}", message);
     }
@@ -680,7 +722,10 @@ mod test {
         assert_eq!(message.answers[3].rtype, Type::A);
         assert_eq!(message.answers[3].class, Class::IN);
         assert_eq!(message.answers[3].ttl, 5);
-        assert_eq!(message.answers[3].rdata, vec![23, 40, 73, 65]);
+        assert_eq!(
+            message.answers[3].rdata,
+            RData::A(Ipv4Addr::new(23, 40, 73, 65))
+        );
 
         println!("{:?}", message);
     }
