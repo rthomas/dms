@@ -54,14 +54,14 @@ async fn handle_request(
     let r_message = send_dns_request(&message).await?;
 
     let mut buf = Vec::with_capacity(1024);
-    r_message.to_bytes(&mut buf)?;
-    info!("Sending to: {}", client_addr);
+    let len = r_message.to_bytes(&mut buf)?;
+    info!("Sending to: {}, length: {}", client_addr, len);
 
     {
         local_socket
             .lock()
             .await
-            .send((Bytes::copy_from_slice(&buf[..]), client_addr))
+            .send((Bytes::copy_from_slice(&buf[0..len]), client_addr))
             .await?;
     }
 
