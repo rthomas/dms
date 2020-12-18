@@ -5,7 +5,7 @@ use nom::IResult;
 use std::collections::HashSet;
 use std::error::Error;
 use std::fmt;
-use tracing::{instrument, trace};
+use tracing::{error, instrument, trace};
 
 type Result<T> = std::result::Result<T, InvalidMessageError>;
 
@@ -54,6 +54,7 @@ pub struct ResourceRecord {
     pub rtype: Type,
     pub class: Class,
     pub ttl: u32,
+    // TODO - Update this to be an enum with the actual decoded data.
     pub rdata: Vec<u8>,
 }
 
@@ -827,7 +828,8 @@ fn flatten_to_string(names: &Vec<Name>) -> String {
             }
             Name::Pointer(_i) => {
                 // TODO - Fix this so that we resolve all pointers.
-                eprintln!("WARNING - FOUND UNRESOLVED POINTER....SKIPPING");
+                // This however should not happen now that we recursively resolve the names.
+                error!("WARNING - FOUND UNRESOLVED POINTER....SKIPPING");
             }
         }
     }
@@ -838,8 +840,9 @@ fn flatten_to_string(names: &Vec<Name>) -> String {
     name
 }
 
-/// This just does a single level of pointer resolution TODO - we should
-/// dereference all of the pointers, rather than a single level.
+/// Resolves all Name::Pointer records to either Name::Name's or
+/// Name::ResolvedPtr's - should be given an empty HashSet as this is used to
+/// track seen pointers to avoid loops.
 #[instrument(skip(input))]
 fn resolve_names<'a>(
     input: &[u8],
@@ -860,7 +863,6 @@ fn resolve_names<'a>(
                 }
                 seen_ptrs.insert(*ptr);
                 let (_, mut names) = read_names(&input[*ptr as usize..input.len()])?;
-
                 resolve_names(input, &mut names, seen_ptrs)?;
 
                 *n = Name::ResolvedPtr(names);
@@ -873,7 +875,7 @@ fn resolve_names<'a>(
 
 #[cfg(test)]
 mod test {
-    use super::Message;
+    use super::*;
     use std::sync::Once;
 
     static INIT: Once = Once::new();
@@ -915,14 +917,14 @@ mod test {
         // Header
         assert_eq!(message.header.id, 21450);
         assert!(!message.header.flags.qr);
-        assert_eq!(message.header.flags.opcode, crate::message::OpCode::Query);
+        assert_eq!(message.header.flags.opcode, OpCode::Query);
         assert!(!message.header.flags.aa);
         assert!(!message.header.flags.tc);
         assert!(message.header.flags.rd);
         assert!(!message.header.flags.ra);
         assert!(message.header.flags.ad);
         assert!(!message.header.flags.cd);
-        assert_eq!(message.header.flags.rcode, crate::message::RCode::NoError);
+        assert_eq!(message.header.flags.rcode, RCode::NoError);
         assert_eq!(message.header.qd_count, 1);
         assert_eq!(message.header.an_count, 0);
         assert_eq!(message.header.ns_count, 0);
@@ -930,8 +932,8 @@ mod test {
 
         // Question
         assert_eq!(message.questions[0].qname, "www.google.com");
-        assert_eq!(message.questions[0].qtype, crate::message::Type::A);
-        assert_eq!(message.questions[0].qclass, crate::message::Class::IN);
+        assert_eq!(message.questions[0].qtype, Type::A);
+        assert_eq!(message.questions[0].qclass, Class::IN);
         println!("{}", message);
     }
 
@@ -950,14 +952,14 @@ mod test {
         // Header
         assert_eq!(message.header.id, 56130);
         assert!(message.header.flags.qr);
-        assert_eq!(message.header.flags.opcode, crate::message::OpCode::Query);
+        assert_eq!(message.header.flags.opcode, OpCode::Query);
         assert!(!message.header.flags.aa);
         assert!(!message.header.flags.tc);
         assert!(message.header.flags.rd);
         assert!(message.header.flags.ra);
         assert!(!message.header.flags.ad);
         assert!(!message.header.flags.cd);
-        assert_eq!(message.header.flags.rcode, crate::message::RCode::NoError);
+        assert_eq!(message.header.flags.rcode, RCode::NoError);
         assert_eq!(message.header.qd_count, 1);
         assert_eq!(message.header.an_count, 1);
         assert_eq!(message.header.ns_count, 0);
@@ -965,13 +967,13 @@ mod test {
 
         // Question
         assert_eq!(message.questions[0].qname, "www.northeastern.edu");
-        assert_eq!(message.questions[0].qtype, crate::message::Type::A);
-        assert_eq!(message.questions[0].qclass, crate::message::Class::IN);
+        assert_eq!(message.questions[0].qtype, Type::A);
+        assert_eq!(message.questions[0].qclass, Class::IN);
 
         // Answer
         assert_eq!(message.answers[0].name, "www.northeastern.edu");
-        assert_eq!(message.answers[0].rtype, crate::message::Type::A);
-        assert_eq!(message.answers[0].class, crate::message::Class::IN);
+        assert_eq!(message.answers[0].rtype, Type::A);
+        assert_eq!(message.answers[0].class, Class::IN);
         assert_eq!(message.answers[0].ttl, 600);
         assert_eq!(message.answers[0].rdata, vec![155, 33, 17, 68]);
 
@@ -1052,14 +1054,14 @@ mod test {
 
         assert_eq!(message.header.id, 53255);
         assert!(message.header.flags.qr);
-        assert_eq!(message.header.flags.opcode, crate::message::OpCode::Query);
+        assert_eq!(message.header.flags.opcode, OpCode::Query);
         assert!(!message.header.flags.aa);
         assert!(!message.header.flags.tc);
         assert!(message.header.flags.rd);
         assert!(message.header.flags.ra);
         assert!(!message.header.flags.ad);
         assert!(!message.header.flags.cd);
-        assert_eq!(message.header.flags.rcode, crate::message::RCode::NoError);
+        assert_eq!(message.header.flags.rcode, RCode::NoError);
         assert_eq!(message.header.qd_count, 1);
         assert_eq!(message.header.an_count, 4);
         assert_eq!(message.header.ns_count, 0);
@@ -1067,19 +1069,19 @@ mod test {
 
         // Question
         assert_eq!(message.questions[0].qname, "www.microsoft.com");
-        assert_eq!(message.questions[0].qtype, crate::message::Type::A);
-        assert_eq!(message.questions[0].qclass, crate::message::Class::IN);
+        assert_eq!(message.questions[0].qtype, Type::A);
+        assert_eq!(message.questions[0].qclass, Class::IN);
 
         // Answer 1
         assert_eq!(message.answers[0].name, "www.microsoft.com");
-        assert_eq!(message.answers[0].rtype, crate::message::Type::CNAME);
-        assert_eq!(message.answers[0].class, crate::message::Class::IN);
+        assert_eq!(message.answers[0].rtype, Type::CNAME);
+        assert_eq!(message.answers[0].class, Class::IN);
         assert_eq!(message.answers[0].ttl, 1504);
 
         // Answer 2
         assert_eq!(message.answers[1].name, "www.microsoft.com-c-3.edgekey.net");
-        assert_eq!(message.answers[1].rtype, crate::message::Type::CNAME);
-        assert_eq!(message.answers[1].class, crate::message::Class::IN);
+        assert_eq!(message.answers[1].rtype, Type::CNAME);
+        assert_eq!(message.answers[1].class, Class::IN);
         assert_eq!(message.answers[1].ttl, 4526);
 
         // Answer 3
@@ -1087,14 +1089,14 @@ mod test {
             message.answers[2].name,
             "www.microsoft.com-c-3.edgekey.net.globalredir.akadns.net"
         );
-        assert_eq!(message.answers[2].rtype, crate::message::Type::CNAME);
-        assert_eq!(message.answers[2].class, crate::message::Class::IN);
+        assert_eq!(message.answers[2].rtype, Type::CNAME);
+        assert_eq!(message.answers[2].class, Class::IN);
         assert_eq!(message.answers[2].ttl, 870);
 
         // Answer 4
         assert_eq!(message.answers[3].name, "e13678.dspb.akamaiedge.net");
-        assert_eq!(message.answers[3].rtype, crate::message::Type::A);
-        assert_eq!(message.answers[3].class, crate::message::Class::IN);
+        assert_eq!(message.answers[3].rtype, Type::A);
+        assert_eq!(message.answers[3].class, Class::IN);
         assert_eq!(message.answers[3].ttl, 5);
         assert_eq!(message.answers[3].rdata, vec![23, 40, 73, 65]);
 
