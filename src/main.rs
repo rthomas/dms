@@ -105,7 +105,7 @@ async fn modify_request(msg: &mut Message) {}
 
 async fn modify_response(msg: &mut Message) {
     for a in msg.answers.iter_mut() {
-        match a.rdata {
+        match a.r_type {
             message::RData::A(ref mut v4) => {
                 println!("A: {}", v4);
                 *v4 = std::net::Ipv4Addr::new(127, 0, 0, 1);

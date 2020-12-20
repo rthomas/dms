@@ -1,7 +1,6 @@
 use crate::message::error::MessageError;
-use crate::message::flatten_to_string;
 use crate::message::message::{
-    Class, Flags, Header, Message, OpCode, Question, RCode, RData, ResourceRecord, Type,
+    Class, Header, Message, OpCode, Question, RCode, RData, ResourceRecord, Type,
 };
 use nom::bits::complete::take as take_bits;
 use nom::bytes::complete::take as take_bytes;
@@ -9,14 +8,13 @@ use nom::combinator::map_res;
 use nom::IResult;
 use std::collections::HashSet;
 use std::net::Ipv4Addr;
-use tracing::{instrument, trace};
+use tracing::{error, instrument, trace};
 
 type Result<T> = std::result::Result<T, MessageError>;
 
 #[derive(Debug)]
 struct RawHeader {
-    id: u16,
-    flags: Flags,
+    header: Header,
     qd_count: u16,
     an_count: u16,
     ns_count: u16,
@@ -40,7 +38,7 @@ struct RawResourceRecord {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) enum Name {
+enum Name {
     Name(String),
     Pointer(u16),
     ResolvedPtr(Vec<Name>),
@@ -48,10 +46,7 @@ pub(crate) enum Name {
 
 impl From<RawHeader> for Header {
     fn from(ih: RawHeader) -> Self {
-        Header {
-            id: ih.id,
-            flags: ih.flags,
-        }
+        ih.header
     }
 }
 
@@ -59,13 +54,16 @@ impl From<RawQuestion> for Question {
     #[instrument]
     fn from(iq: RawQuestion) -> Self {
         Question {
-            qname: flatten_to_string(&iq.qname),
-            qtype: iq.qtype,
-            qclass: iq.qclass,
+            q_name: flatten_to_string(&iq.qname),
+            q_type: iq.qtype,
+            q_class: iq.qclass,
         }
     }
 }
 
+/// We can't implement the From trait here as we need a reference to the
+/// original input in order to dereference the name pointers.
+#[instrument(skip(input))]
 fn from_irr(input: &[u8], irr: RawResourceRecord) -> Result<ResourceRecord> {
     let rdata = match irr.rtype {
         Type::A => RData::A(Ipv4Addr::new(
@@ -80,15 +78,14 @@ fn from_irr(input: &[u8], irr: RawResourceRecord) -> Result<ResourceRecord> {
             let name = flatten_to_string(&names);
             RData::CNAME(name)
         }
-        _ => RData::Raw(irr.rdata),
+        _ => RData::Raw(irr.rtype.into(), irr.rdata),
     };
 
     Ok(ResourceRecord {
         name: flatten_to_string(&irr.name),
-        rtype: irr.rtype,
+        r_type: rdata,
         class: irr.class,
         ttl: irr.ttl,
-        rdata: rdata,
     })
 }
 
@@ -111,15 +108,17 @@ fn read_u32(input: &[u8]) -> IResult<&[u8], u32> {
 }
 
 #[instrument(skip(input))]
-fn read_flags(input: &[u8]) -> IResult<&[u8], Flags> {
-    map_res(take_bytes(2usize), |input| -> Result<Flags> {
+fn read_header(input: &[u8]) -> IResult<&[u8], RawHeader> {
+    use nom::bits::bits;
+    use nom::bits::complete::tag as tag_bits;
+    use nom::combinator::map;
+
+    map_res(take_bytes(12usize), |input| -> Result<RawHeader> {
+        trace!("reading header");
+        let (input, id) = read_u16(input)?;
+
         trace!("reading flags");
-        use nom::bits::bits;
-        use nom::bits::complete::tag as tag_bits;
-
-        use nom::combinator::map;
-
-        let (_, (qr, opcode, aa, tc, rd, ra, ad, cd, rcode)) =
+        let (input, (qr, opcode, aa, tc, rd, ra, ad, cd, rcode)) =
             bits::<_, _, nom::error::Error<_>, nom::error::Error<_>, _>(|i| {
                 let is_one = |s: u8| s == 1;
                 let (i, qr) = map(take_bits(1usize), is_one)(i)?;
@@ -148,34 +147,24 @@ fn read_flags(input: &[u8]) -> IResult<&[u8], Flags> {
                 Ok(((i), (qr, opcode, aa, tc, rd, ra, ad, cd, rcode)))
             })(input)?;
 
-        Ok(Flags {
-            qr,
-            opcode,
-            aa,
-            tc,
-            rd,
-            ra,
-            ad,
-            cd,
-            rcode,
-        })
-    })(input)
-}
-
-#[instrument(skip(input))]
-fn read_header(input: &[u8]) -> IResult<&[u8], RawHeader> {
-    map_res(take_bytes(12usize), |input| -> Result<RawHeader> {
-        trace!("reading header");
-        let (input, id) = read_u16(input)?;
-        let (input, flags) = read_flags(input)?;
         let (input, qd_count) = read_u16(input)?;
         let (input, an_count) = read_u16(input)?;
         let (input, ns_count) = read_u16(input)?;
         let (_, ar_count) = read_u16(input)?;
 
         Ok(RawHeader {
-            id,
-            flags,
+            header: Header {
+                id,
+                qr,
+                opcode,
+                aa,
+                tc,
+                rd,
+                ra,
+                ad,
+                cd,
+                rcode,
+            },
             qd_count,
             an_count,
             ns_count,
@@ -402,4 +391,31 @@ fn resolve_names<'a>(
         }
     }
     Ok(())
+}
+
+#[instrument]
+fn flatten_to_string(names: &Vec<Name>) -> String {
+    let mut name = String::new();
+    for n in names.iter() {
+        match n {
+            Name::Name(part) => {
+                name.push_str(part);
+                name.push('.');
+            }
+            Name::ResolvedPtr(names) => {
+                let s = flatten_to_string(names);
+                name.push_str(&s);
+            }
+            Name::Pointer(_i) => {
+                // TODO - Fix this so that we resolve all pointers.
+                // This however should not happen now that we recursively resolve the names.
+                error!("WARNING - FOUND UNRESOLVED POINTER....SKIPPING");
+            }
+        }
+    }
+    // Remove the trailing '.'
+    if name.chars().last() == Some('.') {
+        name.pop();
+    }
+    name
 }

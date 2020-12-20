@@ -18,44 +18,55 @@ pub struct Message {
 #[derive(Debug, PartialEq)]
 pub struct Header {
     pub id: u16,
-    pub flags: Flags,
-}
-
-#[derive(Debug, PartialEq)]
-pub struct Flags {
-    pub qr: bool,       // RFC1035 - Query
-    pub opcode: OpCode, // RFC1035
-    pub aa: bool,       // RFC1035 - Authorative Answer
-    pub tc: bool,       // RFC1035 - Truncation
-    pub rd: bool,       // RFC1035 - Recursion Desired
-    pub ra: bool,       // RFC1035 - Recursion Available
-    pub ad: bool,       // RFC4035, RFC6840 - Authentic Data
-    pub cd: bool,       // RFC4035, RFC6840 - Checking Disabled
-    pub rcode: RCode,   // RFC1035
+    pub qr: bool,
+    pub opcode: OpCode,
+    pub aa: bool,
+    pub tc: bool,
+    pub rd: bool,
+    pub ra: bool,
+    pub ad: bool,
+    pub cd: bool,
+    pub rcode: RCode,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct Question {
-    pub qname: String,
-    pub qtype: Type,
-    pub qclass: Class,
+    pub q_name: String,
+    pub q_type: Type,
+    pub q_class: Class,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct ResourceRecord {
     pub name: String,
-    pub rtype: Type,
+    pub r_type: RData,
     pub class: Class,
     pub ttl: u32,
-    // TODO - Update this to be an enum with the actual decoded data.
-    pub rdata: RData,
 }
 
 #[derive(Debug, PartialEq)]
 pub enum RData {
     A(Ipv4Addr),
+    NS,
+    MD,
+    MF,
     CNAME(String),
-    Raw(Vec<u8>),
+    SOA,
+    MB,
+    MG,
+    MR,
+    NULL,
+    WKS,
+    PTR,
+    HINFO,
+    MINFO,
+    MX,
+    TXT,
+    AXFR,
+    MAILB,
+    MAILA,
+    STAR,
+    Raw(u16, Vec<u8>),
 }
 
 #[derive(Debug, PartialEq)]
@@ -119,34 +130,6 @@ impl Header {
         buf.push(pair[0]);
         buf.push(pair[1]);
 
-        let mut byte_count = 2;
-
-        byte_count += self.flags.to_bytes(buf)?;
-
-        pair = (message.questions.len() as u16).to_be_bytes();
-        buf.push(pair[0]);
-        buf.push(pair[1]);
-        pair = (message.answers.len() as u16).to_be_bytes();
-        buf.push(pair[0]);
-        buf.push(pair[1]);
-        pair = (message.name_servers.len() as u16).to_be_bytes();
-        buf.push(pair[0]);
-        buf.push(pair[1]);
-        pair = (message.additional_records.len() as u16).to_be_bytes();
-        buf.push(pair[0]);
-        buf.push(pair[1]);
-
-        byte_count += 8;
-
-        trace!("Wrote {} bytes", byte_count);
-
-        Ok(byte_count)
-    }
-}
-
-impl Flags {
-    #[instrument(skip(buf))]
-    fn to_bytes(&self, buf: &mut Vec<u8>) -> Result<usize> {
         let mut val = 0u8;
         if self.qr {
             val |= 1 << 7;
@@ -175,19 +158,62 @@ impl Flags {
         val |= self.rcode.as_u8();
         buf.push(val);
 
-        trace!("Wrote 2 bytes");
+        pair = (message.questions.len() as u16).to_be_bytes();
+        buf.push(pair[0]);
+        buf.push(pair[1]);
+        pair = (message.answers.len() as u16).to_be_bytes();
+        buf.push(pair[0]);
+        buf.push(pair[1]);
+        pair = (message.name_servers.len() as u16).to_be_bytes();
+        buf.push(pair[0]);
+        buf.push(pair[1]);
+        pair = (message.additional_records.len() as u16).to_be_bytes();
+        buf.push(pair[0]);
+        buf.push(pair[1]);
 
-        Ok(2)
+        trace!("Wrote 12 bytes");
+
+        Ok(12)
     }
 }
 
 impl RData {
     #[instrument(skip(buf))]
+    fn to_bytes_type(&self, buf: &mut Vec<u8>) -> usize {
+        let bytes = match self {
+            Self::A(_) => 1u16.to_be_bytes(),
+            Self::NS => 2u16.to_be_bytes(),
+            Self::MD => 3u16.to_be_bytes(),
+            Self::MF => 4u16.to_be_bytes(),
+            Self::CNAME(_) => 5u16.to_be_bytes(),
+            Self::SOA => 6u16.to_be_bytes(),
+            Self::MB => 7u16.to_be_bytes(),
+            Self::MG => 8u16.to_be_bytes(),
+            Self::MR => 9u16.to_be_bytes(),
+            Self::NULL => 10u16.to_be_bytes(),
+            Self::WKS => 11u16.to_be_bytes(),
+            Self::PTR => 12u16.to_be_bytes(),
+            Self::HINFO => 13u16.to_be_bytes(),
+            Self::MINFO => 14u16.to_be_bytes(),
+            Self::MX => 15u16.to_be_bytes(),
+            Self::TXT => 16u16.to_be_bytes(),
+            Self::AXFR => 252u16.to_be_bytes(),
+            Self::MAILB => 253u16.to_be_bytes(),
+            Self::MAILA => 254u16.to_be_bytes(),
+            Self::STAR => 255u16.to_be_bytes(),
+            Self::Raw(i, _) => i.to_be_bytes(),
+        };
+        buf.push(bytes[0]);
+        buf.push(bytes[1]);
+        2
+    }
+
+    #[instrument(skip(buf))]
     fn to_bytes(&self, buf: &mut Vec<u8>) -> Result<usize> {
         trace!("Writing {}", self);
 
         match self {
-            RData::Raw(v) => {
+            RData::Raw(_, v) => {
                 buf.extend(v);
                 Ok(v.len())
             }
@@ -204,7 +230,7 @@ impl RData {
 impl fmt::Display for RData {
     fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
         match self {
-            RData::Raw(v) => write!(f, "Raw({:?})", v),
+            RData::Raw(id, v) => write!(f, "Raw({} => {:?})", id, v),
             RData::A(v4) => write!(f, "A({})", v4),
             RData::CNAME(s) => write!(f, "CNAME({})", s),
             _ => todo!(),
@@ -215,9 +241,9 @@ impl fmt::Display for RData {
 impl Question {
     #[instrument(skip(buf))]
     fn to_bytes(&self, buf: &mut Vec<u8>) -> Result<usize> {
-        let mut byte_count = encode_str(&self.qname, buf)?;
-        byte_count += self.qtype.to_bytes(buf);
-        byte_count += self.qclass.to_bytes(buf);
+        let mut byte_count = encode_str(&self.q_name, buf)?;
+        byte_count += self.q_type.to_bytes(buf);
+        byte_count += self.q_class.to_bytes(buf);
 
         trace!("Wrote {} bytes", byte_count);
 
@@ -232,7 +258,7 @@ impl ResourceRecord {
         // though we will need to wire through a map of the strings and
         // locations. It is perfectly fine with the spec to not implement this.
         let mut byte_count = encode_str(&self.name, buf)?;
-        byte_count += self.rtype.to_bytes(buf);
+        byte_count += self.r_type.to_bytes_type(buf);
         byte_count += self.class.to_bytes(buf);
 
         let ttl = self.ttl.to_be_bytes();
@@ -246,7 +272,7 @@ impl ResourceRecord {
         // rdata will be until we convert it to bytes. We need this to get the
         // length of it, before we write the length.
         let mut rdata: Vec<u8> = Vec::with_capacity(255);
-        let rdlength = self.rdata.to_bytes(&mut rdata)?;
+        let rdlength = self.r_type.to_bytes(&mut rdata)?;
         byte_count += rdlength;
 
         let rdlength = (rdlength as u16).to_be_bytes();
@@ -320,6 +346,34 @@ impl Type {
         trace!("Wrote 2 bytes");
 
         2
+    }
+}
+
+impl From<Type> for u16 {
+    fn from(t: Type) -> u16 {
+        match t {
+            Type::A => 1,
+            Type::NS => 2,
+            Type::MD => 3,
+            Type::MF => 4,
+            Type::CNAME => 5,
+            Type::SOA => 6,
+            Type::MB => 7,
+            Type::MG => 8,
+            Type::MR => 9,
+            Type::NULL => 10,
+            Type::WKS => 11,
+            Type::PTR => 12,
+            Type::HINFO => 13,
+            Type::MINFO => 14,
+            Type::MX => 15,
+            Type::TXT => 16,
+            Type::AXFR => 252,
+            Type::MAILB => 253,
+            Type::MAILA => 254,
+            Type::STAR => 255,
+            Type::Unknown(i) => i,
+        }
     }
 }
 
@@ -464,13 +518,13 @@ impl Message {
 impl fmt::Display for Message {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::result::Result<(), fmt::Error> {
         write!(f, "Message(id:{}) - ", self.header.id)?;
-        if self.header.flags.qr {
+        if self.header.qr {
             write!(f, "Response [")?;
             for (i, a) in self.answers.iter().enumerate() {
                 if i != 0 {
                     write!(f, ", ")?;
                 }
-                write!(f, "{} => {}", a.name, a.rdata)?;
+                write!(f, "{} => {}", a.name, a.r_type)?;
             }
             write!(f, "]")?;
         } else {
@@ -479,7 +533,7 @@ impl fmt::Display for Message {
                 if i != 0 {
                     write!(f, ", ")?;
                 }
-                write!(f, "{}({})", q.qname, q.qtype)?;
+                write!(f, "{}({})", q.q_name, q.q_type)?;
             }
             write!(f, "]")?;
         }
@@ -554,24 +608,24 @@ mod test {
 
         // Header
         assert_eq!(message.header.id, 21450);
-        assert!(!message.header.flags.qr);
-        assert_eq!(message.header.flags.opcode, OpCode::Query);
-        assert!(!message.header.flags.aa);
-        assert!(!message.header.flags.tc);
-        assert!(message.header.flags.rd);
-        assert!(!message.header.flags.ra);
-        assert!(message.header.flags.ad);
-        assert!(!message.header.flags.cd);
-        assert_eq!(message.header.flags.rcode, RCode::NoError);
+        assert!(!message.header.qr);
+        assert_eq!(message.header.opcode, OpCode::Query);
+        assert!(!message.header.aa);
+        assert!(!message.header.tc);
+        assert!(message.header.rd);
+        assert!(!message.header.ra);
+        assert!(message.header.ad);
+        assert!(!message.header.cd);
+        assert_eq!(message.header.rcode, RCode::NoError);
         assert_eq!(message.questions.len(), 1);
         assert_eq!(message.answers.len(), 0);
         assert_eq!(message.name_servers.len(), 0);
         assert_eq!(message.additional_records.len(), 1);
 
         // Question
-        assert_eq!(message.questions[0].qname, "www.google.com");
-        assert_eq!(message.questions[0].qtype, Type::A);
-        assert_eq!(message.questions[0].qclass, Class::IN);
+        assert_eq!(message.questions[0].q_name, "www.google.com");
+        assert_eq!(message.questions[0].q_type, Type::A);
+        assert_eq!(message.questions[0].q_class, Class::IN);
         println!("{}", message);
     }
 
@@ -589,32 +643,31 @@ mod test {
 
         // Header
         assert_eq!(message.header.id, 56130);
-        assert!(message.header.flags.qr);
-        assert_eq!(message.header.flags.opcode, OpCode::Query);
-        assert!(!message.header.flags.aa);
-        assert!(!message.header.flags.tc);
-        assert!(message.header.flags.rd);
-        assert!(message.header.flags.ra);
-        assert!(!message.header.flags.ad);
-        assert!(!message.header.flags.cd);
-        assert_eq!(message.header.flags.rcode, RCode::NoError);
+        assert!(message.header.qr);
+        assert_eq!(message.header.opcode, OpCode::Query);
+        assert!(!message.header.aa);
+        assert!(!message.header.tc);
+        assert!(message.header.rd);
+        assert!(message.header.ra);
+        assert!(!message.header.ad);
+        assert!(!message.header.cd);
+        assert_eq!(message.header.rcode, RCode::NoError);
         assert_eq!(message.questions.len(), 1);
         assert_eq!(message.answers.len(), 1);
         assert_eq!(message.name_servers.len(), 0);
         assert_eq!(message.additional_records.len(), 0);
 
         // Question
-        assert_eq!(message.questions[0].qname, "www.northeastern.edu");
-        assert_eq!(message.questions[0].qtype, Type::A);
-        assert_eq!(message.questions[0].qclass, Class::IN);
+        assert_eq!(message.questions[0].q_name, "www.northeastern.edu");
+        assert_eq!(message.questions[0].q_type, Type::A);
+        assert_eq!(message.questions[0].q_class, Class::IN);
 
         // Answer
         assert_eq!(message.answers[0].name, "www.northeastern.edu");
-        assert_eq!(message.answers[0].rtype, Type::A);
         assert_eq!(message.answers[0].class, Class::IN);
         assert_eq!(message.answers[0].ttl, 600);
         assert_eq!(
-            message.answers[0].rdata,
+            message.answers[0].r_type,
             RData::A(Ipv4Addr::new(155, 33, 17, 68))
         );
 
@@ -694,42 +747,40 @@ mod test {
         let message = Message::from_bytes(input).unwrap();
 
         assert_eq!(message.header.id, 53255);
-        assert!(message.header.flags.qr);
-        assert_eq!(message.header.flags.opcode, OpCode::Query);
-        assert!(!message.header.flags.aa);
-        assert!(!message.header.flags.tc);
-        assert!(message.header.flags.rd);
-        assert!(message.header.flags.ra);
-        assert!(!message.header.flags.ad);
-        assert!(!message.header.flags.cd);
-        assert_eq!(message.header.flags.rcode, RCode::NoError);
+        assert!(message.header.qr);
+        assert_eq!(message.header.opcode, OpCode::Query);
+        assert!(!message.header.aa);
+        assert!(!message.header.tc);
+        assert!(message.header.rd);
+        assert!(message.header.ra);
+        assert!(!message.header.ad);
+        assert!(!message.header.cd);
+        assert_eq!(message.header.rcode, RCode::NoError);
         assert_eq!(message.questions.len(), 1);
         assert_eq!(message.answers.len(), 4);
         assert_eq!(message.name_servers.len(), 0);
         assert_eq!(message.additional_records.len(), 0);
 
         // Question
-        assert_eq!(message.questions[0].qname, "www.microsoft.com");
-        assert_eq!(message.questions[0].qtype, Type::A);
-        assert_eq!(message.questions[0].qclass, Class::IN);
+        assert_eq!(message.questions[0].q_name, "www.microsoft.com");
+        assert_eq!(message.questions[0].q_type, Type::A);
+        assert_eq!(message.questions[0].q_class, Class::IN);
 
         // Answer 1
         assert_eq!(message.answers[0].name, "www.microsoft.com");
-        assert_eq!(message.answers[0].rtype, Type::CNAME);
         assert_eq!(message.answers[0].class, Class::IN);
         assert_eq!(message.answers[0].ttl, 1504);
         assert_eq!(
-            message.answers[0].rdata,
+            message.answers[0].r_type,
             RData::CNAME(String::from("www.microsoft.com-c-3.edgekey.net"))
         );
 
         // Answer 2
         assert_eq!(message.answers[1].name, "www.microsoft.com-c-3.edgekey.net");
-        assert_eq!(message.answers[1].rtype, Type::CNAME);
         assert_eq!(message.answers[1].class, Class::IN);
         assert_eq!(message.answers[1].ttl, 4526);
         assert_eq!(
-            message.answers[1].rdata,
+            message.answers[1].r_type,
             RData::CNAME(String::from(
                 "www.microsoft.com-c-3.edgekey.net.globalredir.akadns.net"
             ))
@@ -740,27 +791,26 @@ mod test {
             message.answers[2].name,
             "www.microsoft.com-c-3.edgekey.net.globalredir.akadns.net"
         );
-        assert_eq!(message.answers[2].rtype, Type::CNAME);
         assert_eq!(message.answers[2].class, Class::IN);
         assert_eq!(message.answers[2].ttl, 870);
         assert_eq!(
-            message.answers[2].rdata,
+            message.answers[2].r_type,
             RData::CNAME(String::from("e13678.dspb.akamaiedge.net"))
         );
 
         // Answer 4
         assert_eq!(message.answers[3].name, "e13678.dspb.akamaiedge.net");
-        assert_eq!(message.answers[3].rtype, Type::A);
         assert_eq!(message.answers[3].class, Class::IN);
         assert_eq!(message.answers[3].ttl, 5);
         assert_eq!(
-            message.answers[3].rdata,
+            message.answers[3].r_type,
             RData::A(Ipv4Addr::new(23, 40, 73, 65))
         );
     }
 
     #[test]
     fn test_deserialize_no_compression() {
+        setup();
         let input = &[
             55, 93, 129, 128, 0, 1, 0, 4, 0, 0, 0, 0, 3, 119, 119, 119, 9, 109, 105, 99, 114, 111,
             115, 111, 102, 116, 3, 99, 111, 109, 0, 0, 1, 0, 1, 3, 119, 119, 119, 9, 109, 105, 99,
@@ -784,42 +834,40 @@ mod test {
         let message = Message::from_bytes(input).unwrap();
 
         assert_eq!(message.header.id, 14173);
-        assert!(message.header.flags.qr);
-        assert_eq!(message.header.flags.opcode, OpCode::Query);
-        assert!(!message.header.flags.aa);
-        assert!(!message.header.flags.tc);
-        assert!(message.header.flags.rd);
-        assert!(message.header.flags.ra);
-        assert!(!message.header.flags.ad);
-        assert!(!message.header.flags.cd);
-        assert_eq!(message.header.flags.rcode, RCode::NoError);
+        assert!(message.header.qr);
+        assert_eq!(message.header.opcode, OpCode::Query);
+        assert!(!message.header.aa);
+        assert!(!message.header.tc);
+        assert!(message.header.rd);
+        assert!(message.header.ra);
+        assert!(!message.header.ad);
+        assert!(!message.header.cd);
+        assert_eq!(message.header.rcode, RCode::NoError);
         assert_eq!(message.questions.len(), 1);
         assert_eq!(message.answers.len(), 4);
         assert_eq!(message.name_servers.len(), 0);
         assert_eq!(message.additional_records.len(), 0);
 
         // Question
-        assert_eq!(message.questions[0].qname, "www.microsoft.com");
-        assert_eq!(message.questions[0].qtype, Type::A);
-        assert_eq!(message.questions[0].qclass, Class::IN);
+        assert_eq!(message.questions[0].q_name, "www.microsoft.com");
+        assert_eq!(message.questions[0].q_type, Type::A);
+        assert_eq!(message.questions[0].q_class, Class::IN);
 
         // Answer 1
         assert_eq!(message.answers[0].name, "www.microsoft.com");
-        assert_eq!(message.answers[0].rtype, Type::CNAME);
         assert_eq!(message.answers[0].class, Class::IN);
         assert_eq!(message.answers[0].ttl, 3012);
         assert_eq!(
-            message.answers[0].rdata,
+            message.answers[0].r_type,
             RData::CNAME(String::from("www.microsoft.com-c-3.edgekey.net"))
         );
 
         // Answer 2
         assert_eq!(message.answers[1].name, "www.microsoft.com-c-3.edgekey.net");
-        assert_eq!(message.answers[1].rtype, Type::CNAME);
         assert_eq!(message.answers[1].class, Class::IN);
         assert_eq!(message.answers[1].ttl, 16153);
         assert_eq!(
-            message.answers[1].rdata,
+            message.answers[1].r_type,
             RData::CNAME(String::from(
                 "www.microsoft.com-c-3.edgekey.net.globalredir.akadns.net"
             ))
@@ -830,21 +878,19 @@ mod test {
             message.answers[2].name,
             "www.microsoft.com-c-3.edgekey.net.globalredir.akadns.net"
         );
-        assert_eq!(message.answers[2].rtype, Type::CNAME);
         assert_eq!(message.answers[2].class, Class::IN);
         assert_eq!(message.answers[2].ttl, 858);
         assert_eq!(
-            message.answers[2].rdata,
+            message.answers[2].r_type,
             RData::CNAME(String::from("e13678.dscb.akamaiedge.net"))
         );
 
         // Answer 4
         assert_eq!(message.answers[3].name, "e13678.dscb.akamaiedge.net");
-        assert_eq!(message.answers[3].rtype, Type::A);
         assert_eq!(message.answers[3].class, Class::IN);
         assert_eq!(message.answers[3].ttl, 16);
         assert_eq!(
-            message.answers[3].rdata,
+            message.answers[3].r_type,
             RData::A(Ipv4Addr::new(23, 40, 73, 65))
         );
         println!("{:#?}", message)
