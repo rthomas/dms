@@ -14,14 +14,24 @@ use tracing::{instrument, trace};
 type Result<T> = std::result::Result<T, MessageError>;
 
 #[derive(Debug)]
-struct InnerQuestion {
+struct RawHeader {
+    id: u16,
+    flags: Flags,
+    qd_count: u16,
+    an_count: u16,
+    ns_count: u16,
+    ar_count: u16,
+}
+
+#[derive(Debug)]
+struct RawQuestion {
     qname: Vec<Name>,
     qtype: Type,
     qclass: Class,
 }
 
 #[derive(Debug)]
-struct InnerResourceRecord {
+struct RawResourceRecord {
     name: Vec<Name>,
     rtype: Type,
     class: Class,
@@ -36,9 +46,18 @@ pub(crate) enum Name {
     ResolvedPtr(Vec<Name>),
 }
 
-impl From<InnerQuestion> for Question {
+impl From<RawHeader> for Header {
+    fn from(ih: RawHeader) -> Self {
+        Header {
+            id: ih.id,
+            flags: ih.flags,
+        }
+    }
+}
+
+impl From<RawQuestion> for Question {
     #[instrument]
-    fn from(iq: InnerQuestion) -> Self {
+    fn from(iq: RawQuestion) -> Self {
         Question {
             qname: flatten_to_string(&iq.qname),
             qtype: iq.qtype,
@@ -47,7 +66,7 @@ impl From<InnerQuestion> for Question {
     }
 }
 
-fn from_irr(input: &[u8], irr: InnerResourceRecord) -> Result<ResourceRecord> {
+fn from_irr(input: &[u8], irr: RawResourceRecord) -> Result<ResourceRecord> {
     let rdata = match irr.rtype {
         Type::A => RData::A(Ipv4Addr::new(
             irr.rdata[0],
@@ -144,8 +163,8 @@ fn read_flags(input: &[u8]) -> IResult<&[u8], Flags> {
 }
 
 #[instrument(skip(input))]
-fn read_header(input: &[u8]) -> IResult<&[u8], Header> {
-    map_res(take_bytes(12usize), |input| -> Result<Header> {
+fn read_header(input: &[u8]) -> IResult<&[u8], RawHeader> {
+    map_res(take_bytes(12usize), |input| -> Result<RawHeader> {
         trace!("reading header");
         let (input, id) = read_u16(input)?;
         let (input, flags) = read_flags(input)?;
@@ -154,7 +173,7 @@ fn read_header(input: &[u8]) -> IResult<&[u8], Header> {
         let (input, ns_count) = read_u16(input)?;
         let (_, ar_count) = read_u16(input)?;
 
-        Ok(Header {
+        Ok(RawHeader {
             id,
             flags,
             qd_count,
@@ -223,7 +242,7 @@ fn read_names(input: &[u8]) -> IResult<&[u8], Vec<Name>> {
 }
 
 #[instrument(skip(input))]
-fn read_question(input: &[u8]) -> IResult<&[u8], InnerQuestion> {
+fn read_question(input: &[u8]) -> IResult<&[u8], RawQuestion> {
     trace!("reading question");
     let (input, qname) = read_names(input)?;
 
@@ -238,7 +257,7 @@ fn read_question(input: &[u8]) -> IResult<&[u8], InnerQuestion> {
 
     Ok((
         input,
-        InnerQuestion {
+        RawQuestion {
             qname,
             qtype,
             qclass,
@@ -247,7 +266,7 @@ fn read_question(input: &[u8]) -> IResult<&[u8], InnerQuestion> {
 }
 
 #[instrument(skip(input))]
-fn read_resource_record(input: &[u8]) -> IResult<&[u8], InnerResourceRecord> {
+fn read_resource_record(input: &[u8]) -> IResult<&[u8], RawResourceRecord> {
     trace!("reading resource record");
     let (input, name) = read_names(input)?;
     let (input, rtype) = {
@@ -268,7 +287,7 @@ fn read_resource_record(input: &[u8]) -> IResult<&[u8], InnerResourceRecord> {
     let rdata = Vec::from(rdata);
     Ok((
         input,
-        InnerResourceRecord {
+        RawResourceRecord {
             name,
             rtype,
             class,
@@ -335,7 +354,7 @@ fn as_message<'a>(input: &[u8]) -> Result<Message> {
     }
 
     Ok(Message {
-        header,
+        header: header.into(),
         questions: questions.drain(..).map(Question::from).collect(),
         answers: answers
             .drain(..)

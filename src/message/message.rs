@@ -19,10 +19,6 @@ pub struct Message {
 pub struct Header {
     pub id: u16,
     pub flags: Flags,
-    pub qd_count: u16,
-    pub an_count: u16,
-    pub ns_count: u16,
-    pub ar_count: u16,
 }
 
 #[derive(Debug, PartialEq)]
@@ -118,7 +114,7 @@ pub enum Type {
 
 impl Header {
     #[instrument(skip(buf))]
-    fn to_bytes(&self, buf: &mut Vec<u8>) -> Result<usize> {
+    fn to_bytes(&self, message: &Message, buf: &mut Vec<u8>) -> Result<usize> {
         let mut pair = self.id.to_be_bytes();
         buf.push(pair[0]);
         buf.push(pair[1]);
@@ -127,16 +123,16 @@ impl Header {
 
         byte_count += self.flags.to_bytes(buf)?;
 
-        pair = self.qd_count.to_be_bytes();
+        pair = (message.questions.len() as u16).to_be_bytes();
         buf.push(pair[0]);
         buf.push(pair[1]);
-        pair = self.an_count.to_be_bytes();
+        pair = (message.answers.len() as u16).to_be_bytes();
         buf.push(pair[0]);
         buf.push(pair[1]);
-        pair = self.ns_count.to_be_bytes();
+        pair = (message.name_servers.len() as u16).to_be_bytes();
         buf.push(pair[0]);
         buf.push(pair[1]);
-        pair = self.ar_count.to_be_bytes();
+        pair = (message.additional_records.len() as u16).to_be_bytes();
         buf.push(pair[0]);
         buf.push(pair[1]);
 
@@ -440,7 +436,7 @@ impl Message {
     /// number of bytes written to the buffer.
     #[instrument(skip(buf))]
     pub fn to_bytes(&self, buf: &mut Vec<u8>) -> Result<usize> {
-        let mut byte_count = self.header.to_bytes(buf)?;
+        let mut byte_count = self.header.to_bytes(&self, buf)?;
         for q in self.questions.iter() {
             byte_count += q.to_bytes(buf)?;
         }
@@ -567,10 +563,10 @@ mod test {
         assert!(message.header.flags.ad);
         assert!(!message.header.flags.cd);
         assert_eq!(message.header.flags.rcode, RCode::NoError);
-        assert_eq!(message.header.qd_count, 1);
-        assert_eq!(message.header.an_count, 0);
-        assert_eq!(message.header.ns_count, 0);
-        assert_eq!(message.header.ar_count, 1);
+        assert_eq!(message.questions.len(), 1);
+        assert_eq!(message.answers.len(), 0);
+        assert_eq!(message.name_servers.len(), 0);
+        assert_eq!(message.additional_records.len(), 1);
 
         // Question
         assert_eq!(message.questions[0].qname, "www.google.com");
@@ -602,10 +598,10 @@ mod test {
         assert!(!message.header.flags.ad);
         assert!(!message.header.flags.cd);
         assert_eq!(message.header.flags.rcode, RCode::NoError);
-        assert_eq!(message.header.qd_count, 1);
-        assert_eq!(message.header.an_count, 1);
-        assert_eq!(message.header.ns_count, 0);
-        assert_eq!(message.header.ar_count, 0);
+        assert_eq!(message.questions.len(), 1);
+        assert_eq!(message.answers.len(), 1);
+        assert_eq!(message.name_servers.len(), 0);
+        assert_eq!(message.additional_records.len(), 0);
 
         // Question
         assert_eq!(message.questions[0].qname, "www.northeastern.edu");
@@ -707,10 +703,10 @@ mod test {
         assert!(!message.header.flags.ad);
         assert!(!message.header.flags.cd);
         assert_eq!(message.header.flags.rcode, RCode::NoError);
-        assert_eq!(message.header.qd_count, 1);
-        assert_eq!(message.header.an_count, 4);
-        assert_eq!(message.header.ns_count, 0);
-        assert_eq!(message.header.ar_count, 0);
+        assert_eq!(message.questions.len(), 1);
+        assert_eq!(message.answers.len(), 4);
+        assert_eq!(message.name_servers.len(), 0);
+        assert_eq!(message.additional_records.len(), 0);
 
         // Question
         assert_eq!(message.questions[0].qname, "www.microsoft.com");
