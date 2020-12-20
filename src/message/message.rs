@@ -195,7 +195,7 @@ impl RData {
                 buf.extend_from_slice(&v4.octets());
                 Ok(4)
             }
-            RData::CNAME(s) => str_to_bytes(s, buf),
+            RData::CNAME(s) => encode_str(s, buf),
             _ => todo!(),
         }
     }
@@ -215,7 +215,7 @@ impl fmt::Display for RData {
 impl Question {
     #[instrument(skip(buf))]
     fn to_bytes(&self, buf: &mut Vec<u8>) -> Result<usize> {
-        let mut byte_count = str_to_bytes(&self.qname, buf)?;
+        let mut byte_count = encode_str(&self.qname, buf)?;
         byte_count += self.qtype.to_bytes(buf);
         byte_count += self.qclass.to_bytes(buf);
 
@@ -231,7 +231,7 @@ impl ResourceRecord {
         // TODO here is where we would implement the Message Compression -
         // though we will need to wire through a map of the strings and
         // locations. It is perfectly fine with the spec to not implement this.
-        let mut byte_count = str_to_bytes(&self.name, buf)?;
+        let mut byte_count = encode_str(&self.name, buf)?;
         byte_count += self.rtype.to_bytes(buf);
         byte_count += self.class.to_bytes(buf);
 
@@ -488,7 +488,7 @@ impl fmt::Display for Message {
 }
 
 #[instrument(skip(buf))]
-fn str_to_bytes(s: &str, buf: &mut Vec<u8>) -> Result<usize> {
+fn encode_str(s: &str, buf: &mut Vec<u8>) -> Result<usize> {
     let mut byte_count = 0;
     let name_parts = s.split(".");
     for name in name_parts {

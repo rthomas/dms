@@ -5,7 +5,7 @@ mod parser;
 use parser::Name;
 use tracing::{error, instrument};
 
-pub use message::{Flags, Header, Message, Question, ResourceRecord};
+pub use message::{Flags, Header, Message, Question, RData, ResourceRecord};
 
 #[instrument]
 fn flatten_to_string(names: &Vec<Name>) -> String {

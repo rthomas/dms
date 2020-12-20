@@ -48,16 +48,18 @@ async fn handle_request(
     local_socket: &mut Arc<Mutex<SplitSink<UdpFramed<BytesCodec>, (Bytes, SocketAddr)>>>,
     client_addr: SocketAddr,
 ) -> Result<()> {
-    let message = Message::from_bytes(buf).unwrap();
+    let mut message = Message::from_bytes(buf).unwrap();
     info!("{}: {}", client_addr, message);
 
-    let r_message = send_dns_request(&message).await?;
+    modify_request(&mut message).await;
+
+    let mut r_message = send_dns_request(&message).await?;
+
+    modify_response(&mut r_message).await;
 
     let mut buf = Vec::with_capacity(1024);
     let len = r_message.to_bytes(&mut buf)?;
     info!("Sending to: {}, length: {}", client_addr, len);
-    info!("Sending bytes: {:?}", buf);
-
     {
         local_socket
             .lock()
@@ -97,4 +99,18 @@ async fn send_dns_request(msg: &Message) -> Result<Message> {
     };
     info!("Got back: {}", r_message);
     Ok(r_message)
+}
+
+async fn modify_request(msg: &mut Message) {}
+
+async fn modify_response(msg: &mut Message) {
+    for a in msg.answers.iter_mut() {
+        match a.rdata {
+            message::RData::A(ref mut v4) => {
+                println!("A: {}", v4);
+                *v4 = std::net::Ipv4Addr::new(127, 0, 0, 1);
+            }
+            _ => {}
+        }
+    }
 }
