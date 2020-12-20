@@ -757,38 +757,96 @@ mod test {
             message.answers[3].rdata,
             RData::A(Ipv4Addr::new(23, 40, 73, 65))
         );
-
-        println!("{:?}", message);
     }
 
     #[test]
     fn test_deserialize_no_compression() {
         let input = &[
-            50, 87, 129, 128, 0, 1, 0, 4, 0, 0, 0, 0, // Question
-            3, 119, 119, 119, 9, 109, 105, 99, 114, 111, 115, 111, 102, 116, 3, 99, 111, 109, 0, 0,
-            1, 0, 1, // Answer
-            3, 119, 119, 119, 9, 109, 105, 99, 114, 111, 115, 111, 102, 116, 3, 99, 111, 109, 0, 0,
-            5, 0, 1, // cname, in
-            0, 0, 6, 97, //ttl
-            0, 33, //rdlength
+            55, 93, 129, 128, 0, 1, 0, 4, 0, 0, 0, 0, 3, 119, 119, 119, 9, 109, 105, 99, 114, 111,
+            115, 111, 102, 116, 3, 99, 111, 109, 0, 0, 1, 0, 1, 3, 119, 119, 119, 9, 109, 105, 99,
+            114, 111, 115, 111, 102, 116, 3, 99, 111, 109, 0, 0, 5, 0, 1, 0, 0, 11, 196, 0, 35, 3,
+            119, 119, 119, 9, 109, 105, 99, 114, 111, 115, 111, 102, 116, 7, 99, 111, 109, 45, 99,
+            45, 51, 7, 101, 100, 103, 101, 107, 101, 121, 3, 110, 101, 116, 0, 3, 119, 119, 119, 9,
+            109, 105, 99, 114, 111, 115, 111, 102, 116, 7, 99, 111, 109, 45, 99, 45, 51, 7, 101,
+            100, 103, 101, 107, 101, 121, 3, 110, 101, 116, 0, 0, 5, 0, 1, 0, 0, 63, 25, 0, 58, 3,
+            119, 119, 119, 9, 109, 105, 99, 114, 111, 115, 111, 102, 116, 7, 99, 111, 109, 45, 99,
+            45, 51, 7, 101, 100, 103, 101, 107, 101, 121, 3, 110, 101, 116, 11, 103, 108, 111, 98,
+            97, 108, 114, 101, 100, 105, 114, 6, 97, 107, 97, 100, 110, 115, 3, 110, 101, 116, 0,
             3, 119, 119, 119, 9, 109, 105, 99, 114, 111, 115, 111, 102, 116, 7, 99, 111, 109, 45,
-            99, 45, 51, 7, 101, 100, 103, 101, 107, 101, 121, 3, 110, 101, 116, 0, 3, 119, 119,
-            119, 9, 109, 105, 99, 114, 111, 115, 111, 102, 116, 7, 99, 111, 109, 45, 99, 45, 51, 7,
-            101, 100, 103, 101, 107, 101, 121, 3, 110, 101, 116, 0, 0, 5, 0, 1, 0, 0, 17, 49, 0,
-            56, 3, 119, 119, 119, 9, 109, 105, 99, 114, 111, 115, 111, 102, 116, 7, 99, 111, 109,
-            45, 99, 45, 51, 7, 101, 100, 103, 101, 107, 101, 121, 3, 110, 101, 116, 11, 103, 108,
-            111, 98, 97, 108, 114, 101, 100, 105, 114, 6, 97, 107, 97, 100, 110, 115, 3, 110, 101,
-            116, 0, 3, 119, 119, 119, 9, 109, 105, 99, 114, 111, 115, 111, 102, 116, 7, 99, 111,
-            109, 45, 99, 45, 51, 7, 101, 100, 103, 101, 107, 101, 121, 3, 110, 101, 116, 11, 103,
-            108, 111, 98, 97, 108, 114, 101, 100, 105, 114, 6, 97, 107, 97, 100, 110, 115, 3, 110,
-            101, 116, 0, 0, 5, 0, 1, 0, 0, 2, 224, 0, 26, 6, 101, 49, 51, 54, 55, 56, 4, 100, 115,
-            112, 98, 10, 97, 107, 97, 109, 97, 105, 101, 100, 103, 101, 3, 110, 101, 116, 0, 6,
-            101, 49, 51, 54, 55, 56, 4, 100, 115, 112, 98, 10, 97, 107, 97, 109, 97, 105, 101, 100,
-            103, 101, 3, 110, 101, 116, 0, 0, 1, 0, 1, 0, 0, 0, 5, 0, 4, 23, 202, 168, 212,
+            99, 45, 51, 7, 101, 100, 103, 101, 107, 101, 121, 3, 110, 101, 116, 11, 103, 108, 111,
+            98, 97, 108, 114, 101, 100, 105, 114, 6, 97, 107, 97, 100, 110, 115, 3, 110, 101, 116,
+            0, 0, 5, 0, 1, 0, 0, 3, 90, 0, 28, 6, 101, 49, 51, 54, 55, 56, 4, 100, 115, 99, 98, 10,
+            97, 107, 97, 109, 97, 105, 101, 100, 103, 101, 3, 110, 101, 116, 0, 6, 101, 49, 51, 54,
+            55, 56, 4, 100, 115, 99, 98, 10, 97, 107, 97, 109, 97, 105, 101, 100, 103, 101, 3, 110,
+            101, 116, 0, 0, 1, 0, 1, 0, 0, 0, 16, 0, 4, 23, 40, 73, 65,
         ];
 
         let message = Message::from_bytes(input).unwrap();
 
+        assert_eq!(message.header.id, 14173);
+        assert!(message.header.flags.qr);
+        assert_eq!(message.header.flags.opcode, OpCode::Query);
+        assert!(!message.header.flags.aa);
+        assert!(!message.header.flags.tc);
+        assert!(message.header.flags.rd);
+        assert!(message.header.flags.ra);
+        assert!(!message.header.flags.ad);
+        assert!(!message.header.flags.cd);
+        assert_eq!(message.header.flags.rcode, RCode::NoError);
+        assert_eq!(message.questions.len(), 1);
+        assert_eq!(message.answers.len(), 4);
+        assert_eq!(message.name_servers.len(), 0);
+        assert_eq!(message.additional_records.len(), 0);
+
+        // Question
+        assert_eq!(message.questions[0].qname, "www.microsoft.com");
+        assert_eq!(message.questions[0].qtype, Type::A);
+        assert_eq!(message.questions[0].qclass, Class::IN);
+
+        // Answer 1
+        assert_eq!(message.answers[0].name, "www.microsoft.com");
+        assert_eq!(message.answers[0].rtype, Type::CNAME);
+        assert_eq!(message.answers[0].class, Class::IN);
+        assert_eq!(message.answers[0].ttl, 3012);
+        assert_eq!(
+            message.answers[0].rdata,
+            RData::CNAME(String::from("www.microsoft.com-c-3.edgekey.net"))
+        );
+
+        // Answer 2
+        assert_eq!(message.answers[1].name, "www.microsoft.com-c-3.edgekey.net");
+        assert_eq!(message.answers[1].rtype, Type::CNAME);
+        assert_eq!(message.answers[1].class, Class::IN);
+        assert_eq!(message.answers[1].ttl, 16153);
+        assert_eq!(
+            message.answers[1].rdata,
+            RData::CNAME(String::from(
+                "www.microsoft.com-c-3.edgekey.net.globalredir.akadns.net"
+            ))
+        );
+
+        // Answer 3
+        assert_eq!(
+            message.answers[2].name,
+            "www.microsoft.com-c-3.edgekey.net.globalredir.akadns.net"
+        );
+        assert_eq!(message.answers[2].rtype, Type::CNAME);
+        assert_eq!(message.answers[2].class, Class::IN);
+        assert_eq!(message.answers[2].ttl, 858);
+        assert_eq!(
+            message.answers[2].rdata,
+            RData::CNAME(String::from("e13678.dscb.akamaiedge.net"))
+        );
+
+        // Answer 4
+        assert_eq!(message.answers[3].name, "e13678.dscb.akamaiedge.net");
+        assert_eq!(message.answers[3].rtype, Type::A);
+        assert_eq!(message.answers[3].class, Class::IN);
+        assert_eq!(message.answers[3].ttl, 16);
+        assert_eq!(
+            message.answers[3].rdata,
+            RData::A(Ipv4Addr::new(23, 40, 73, 65))
+        );
         println!("{:#?}", message)
     }
 }
