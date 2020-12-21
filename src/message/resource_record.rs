@@ -125,10 +125,27 @@ impl RData {
 impl fmt::Display for RData {
     fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
         match self {
-            RData::Raw(id, v) => write!(f, "Raw({} => {:?})", id, v),
-            RData::A(v4) => write!(f, "A({})", v4),
-            RData::CNAME(s) => write!(f, "CNAME({})", s),
-            _ => todo!(),
+            Self::A(v4) => write!(f, "A({})", v4),
+            Self::NS => write!(f, "NS"),
+            Self::MD => write!(f, "MD"),
+            Self::MF => write!(f, "MF"),
+            Self::CNAME(s) => write!(f, "CNAME({})", s),
+            Self::SOA => write!(f, "SOA"),
+            Self::MB => write!(f, "MB"),
+            Self::MG => write!(f, "MG"),
+            Self::MR => write!(f, "MR"),
+            Self::NULL => write!(f, "NULL"),
+            Self::WKS => write!(f, "WKS"),
+            Self::PTR => write!(f, "PTR"),
+            Self::HINFO => write!(f, "HINFO"),
+            Self::MINFO => write!(f, "MINFO"),
+            Self::MX => write!(f, "MX"),
+            Self::TXT => write!(f, "TXT"),
+            Self::AXFR => write!(f, "AXFR"),
+            Self::MAILB => write!(f, "MAILB"),
+            Self::MAILA => write!(f, "MAILA"),
+            Self::STAR => write!(f, "*"),
+            Self::Raw(id, v) => write!(f, "Raw({} => {:?})", id, v),
         }
     }
 }
