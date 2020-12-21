@@ -1,5 +1,6 @@
 use crate::message::error::MessageError;
-use crate::message::message::{
+use crate::message::Result;
+use crate::message::{
     Class, Header, Message, OpCode, Question, RCode, RData, ResourceRecord, Type,
 };
 use nom::bits::complete::take as take_bits;
@@ -9,8 +10,6 @@ use nom::IResult;
 use std::collections::HashSet;
 use std::net::Ipv4Addr;
 use tracing::{error, instrument, trace};
-
-type Result<T> = std::result::Result<T, MessageError>;
 
 #[derive(Debug)]
 struct RawHeader {
