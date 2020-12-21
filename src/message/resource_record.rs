@@ -18,7 +18,12 @@ impl ResourceRecord {
         // though we will need to wire through a map of the strings and
         // locations. It is perfectly fine with the spec to not implement this.
         let mut byte_count = encode_str(&self.name, buf)?;
-        byte_count += self.r_type.to_bytes_type(buf);
+
+        let r_type = self.r_type.as_u16().to_be_bytes();
+        buf.push(r_type[0]);
+        buf.push(r_type[1]);
+        byte_count += 2;
+
         byte_count += self.class.to_bytes(buf);
 
         let ttl = self.ttl.to_be_bytes();
@@ -73,34 +78,30 @@ pub enum RData {
 }
 
 impl RData {
-    #[instrument(skip(buf))]
-    fn to_bytes_type(&self, buf: &mut Vec<u8>) -> usize {
-        let bytes = match self {
-            Self::A(_) => 1u16.to_be_bytes(),
-            Self::NS => 2u16.to_be_bytes(),
-            Self::MD => 3u16.to_be_bytes(),
-            Self::MF => 4u16.to_be_bytes(),
-            Self::CNAME(_) => 5u16.to_be_bytes(),
-            Self::SOA => 6u16.to_be_bytes(),
-            Self::MB => 7u16.to_be_bytes(),
-            Self::MG => 8u16.to_be_bytes(),
-            Self::MR => 9u16.to_be_bytes(),
-            Self::NULL => 10u16.to_be_bytes(),
-            Self::WKS => 11u16.to_be_bytes(),
-            Self::PTR => 12u16.to_be_bytes(),
-            Self::HINFO => 13u16.to_be_bytes(),
-            Self::MINFO => 14u16.to_be_bytes(),
-            Self::MX => 15u16.to_be_bytes(),
-            Self::TXT => 16u16.to_be_bytes(),
-            Self::AXFR => 252u16.to_be_bytes(),
-            Self::MAILB => 253u16.to_be_bytes(),
-            Self::MAILA => 254u16.to_be_bytes(),
-            Self::STAR => 255u16.to_be_bytes(),
-            Self::Raw(i, _) => i.to_be_bytes(),
-        };
-        buf.push(bytes[0]);
-        buf.push(bytes[1]);
-        2
+    fn as_u16(&self) -> u16 {
+        match self {
+            RData::A(_) => 1,
+            RData::NS => 2,
+            RData::MD => 3,
+            RData::MF => 4,
+            RData::CNAME(_) => 5,
+            RData::SOA => 6,
+            RData::MB => 7,
+            RData::MG => 8,
+            RData::MR => 9,
+            RData::NULL => 10,
+            RData::WKS => 11,
+            RData::PTR => 12,
+            RData::HINFO => 13,
+            RData::MINFO => 14,
+            RData::MX => 15,
+            RData::TXT => 16,
+            RData::AXFR => 252,
+            RData::MAILB => 253,
+            RData::MAILA => 254,
+            RData::STAR => 255,
+            RData::Raw(i, _) => *i,
+        }
     }
 
     #[instrument(skip(buf))]

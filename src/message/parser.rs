@@ -80,6 +80,8 @@ fn from_irr(input: &[u8], irr: RawResourceRecord) -> Result<ResourceRecord> {
         _ => RData::Raw(irr.rtype.into(), irr.rdata),
     };
 
+    trace!("Parsed rdata as {}", rdata);
+
     Ok(ResourceRecord {
         name: flatten_to_string(&irr.name),
         r_type: rdata,
