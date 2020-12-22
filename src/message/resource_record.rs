@@ -148,7 +148,7 @@ impl fmt::Display for RData {
             Self::MAILB => write!(f, "MAILB"),
             Self::MAILA => write!(f, "MAILA"),
             Self::STAR => write!(f, "*"),
-            Self::Raw(id, v) => write!(f, "Raw({} => {:?})", id, v),
+            Self::Raw(id, v) => write!(f, "Raw({}: {:?})", id, v),
         }
     }
 }
