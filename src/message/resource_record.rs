@@ -1,6 +1,6 @@
 use crate::message::{encode_str, Class, Result};
 use std::fmt;
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 use tracing::{instrument, trace};
 
 #[derive(Debug, PartialEq)]
@@ -69,7 +69,8 @@ pub enum RData {
     HINFO,
     MINFO,
     MX,
-    TXT,
+    TXT(String),
+    AAAA(Ipv6Addr),
     AXFR,
     MAILB,
     MAILA,
@@ -97,7 +98,8 @@ impl RData {
             RData::HINFO => 13,
             RData::MINFO => 14,
             RData::MX => 15,
-            RData::TXT => 16,
+            RData::TXT(_) => 16,
+            RData::AAAA(_) => 28,
             RData::AXFR => 252,
             RData::MAILB => 253,
             RData::MAILA => 254,
@@ -120,6 +122,14 @@ impl RData {
                 Ok(4)
             }
             RData::CNAME(s) => encode_str(s, buf),
+            RData::TXT(s) => {
+                buf.extend_from_slice(s.as_bytes());
+                Ok(s.len())
+            }
+            RData::AAAA(v6) => {
+                buf.extend_from_slice(&v6.octets());
+                Ok(16)
+            }
             _ => todo!(),
         }
     }
@@ -143,7 +153,8 @@ impl fmt::Display for RData {
             Self::HINFO => write!(f, "HINFO"),
             Self::MINFO => write!(f, "MINFO"),
             Self::MX => write!(f, "MX"),
-            Self::TXT => write!(f, "TXT"),
+            Self::TXT(s) => write!(f, "TXT({})", s),
+            Self::AAAA(v6) => write!(f, "AAAA({})", v6),
             Self::AXFR => write!(f, "AXFR"),
             Self::MAILB => write!(f, "MAILB"),
             Self::MAILA => write!(f, "MAILA"),

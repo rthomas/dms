@@ -30,3 +30,9 @@ impl From<std::str::Utf8Error> for MessageError {
         MessageError::EncodingError(Box::new(error))
     }
 }
+
+impl From<std::string::FromUtf8Error> for MessageError {
+    fn from(error: std::string::FromUtf8Error) -> Self {
+        MessageError::EncodingError(Box::new(error))
+    }
+}

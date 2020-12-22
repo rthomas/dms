@@ -8,7 +8,7 @@ use nom::bytes::complete::take as take_bytes;
 use nom::combinator::map_res;
 use nom::IResult;
 use std::collections::HashSet;
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 use tracing::{error, instrument, trace};
 
 #[derive(Debug)]
@@ -76,6 +76,12 @@ fn from_irr(input: &[u8], irr: RawResourceRecord) -> Result<ResourceRecord> {
             resolve_names(input, &mut names, &mut HashSet::new())?;
             let name = flatten_to_string(&names);
             RData::CNAME(name)
+        }
+        Type::TXT => RData::TXT(String::from_utf8(irr.rdata)?),
+        Type::AAAA => {
+            let mut v6: [u8; 16] = [0; 16];
+            v6.copy_from_slice(&input[0..16]);
+            RData::AAAA(Ipv6Addr::from(v6))
         }
         _ => RData::Raw(irr.rtype.into(), irr.rdata),
     };
