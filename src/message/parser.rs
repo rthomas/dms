@@ -84,7 +84,7 @@ fn from_irr(input: &[u8], irr: RawResourceRecord) -> Result<ResourceRecord> {
 
     Ok(ResourceRecord {
         name: flatten_to_string(&irr.name),
-        r_type: rdata,
+        data: rdata,
         class: irr.class,
         ttl: irr.ttl,
     })
@@ -123,12 +123,12 @@ fn read_header(input: &[u8]) -> IResult<&[u8], RawHeader> {
             bits::<_, _, nom::error::Error<_>, nom::error::Error<_>, _>(|i| {
                 let is_one = |s: u8| s == 1;
                 let (i, qr) = map(take_bits(1usize), is_one)(i)?;
-                let (i, opcode) = match map(take_bits(4usize), |s: u8| s)(i)? {
-                    (i, 0) => (i, OpCode::Query),
-                    (i, 1) => (i, OpCode::IQuery),
-                    (i, 2) => (i, OpCode::Status),
-                    (i, _) => (i, OpCode::Reserved),
-                };
+                let (i, opcode) = map(take_bits(4usize), |s: u8| match s {
+                    0 => OpCode::Query,
+                    1 => OpCode::IQuery,
+                    2 => OpCode::Status,
+                    n => OpCode::Unknown(n),
+                })(i)?;
                 let (i, aa) = map(take_bits(1usize), is_one)(i)?;
                 let (i, tc) = map(take_bits(1usize), is_one)(i)?;
                 let (i, rd) = map(take_bits(1usize), is_one)(i)?;

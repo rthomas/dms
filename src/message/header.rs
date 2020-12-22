@@ -1,7 +1,7 @@
-use crate::message::{Message, MessageError};
-use tracing::{instrument, trace};
-
 use crate::message::Result;
+use crate::message::{Message, MessageError};
+use std::default::Default;
+use tracing::{instrument, trace};
 
 #[derive(Debug, PartialEq)]
 pub struct Header {
@@ -28,7 +28,7 @@ impl Header {
         if self.qr {
             val |= 1 << 7;
         }
-        val |= self.opcode.as_u8()?;
+        val |= self.opcode.as_u8()? << 3;
         if self.aa {
             val |= 1 << 2;
         }
@@ -73,10 +73,10 @@ impl Header {
 
 #[derive(Debug, PartialEq)]
 pub enum OpCode {
-    Query = 0,
-    IQuery = 1,
-    Status = 2,
-    Reserved,
+    Query,
+    IQuery,
+    Status,
+    Unknown(u8),
 }
 
 impl OpCode {
@@ -86,8 +86,21 @@ impl OpCode {
             OpCode::Query => Ok(0),
             OpCode::IQuery => Ok(1),
             OpCode::Status => Ok(2),
-            OpCode::Reserved => Err(MessageError::ReservedOpCode),
+            OpCode::Unknown(opcode) => {
+                if *opcode > 0xf {
+                    // OpCodes can only be 4 bits wide.
+                    Err(MessageError::ReservedOpCode)
+                } else {
+                    Ok(*opcode)
+                }
+            }
         }
+    }
+}
+
+impl Default for OpCode {
+    fn default() -> Self {
+        OpCode::Query
     }
 }
 
@@ -114,5 +127,11 @@ impl RCode {
             RCode::Refused => 5,
             RCode::Unknown(i) => *i,
         }
+    }
+}
+
+impl Default for RCode {
+    fn default() -> Self {
+        RCode::NoError
     }
 }

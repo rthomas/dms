@@ -58,22 +58,21 @@ impl Message {
 impl fmt::Display for Message {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::result::Result<(), fmt::Error> {
         write!(f, "Message(id:{}) - ", self.header.id)?;
+        write!(f, "Query [")?;
+        for (i, q) in self.questions.iter().enumerate() {
+            if i != 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, "{}({})", q.q_name, q.q_type)?;
+        }
+        write!(f, "]")?;
         if self.header.qr {
-            write!(f, "Response [")?;
+            write!(f, " - Response [")?;
             for (i, a) in self.answers.iter().enumerate() {
                 if i != 0 {
                     write!(f, ", ")?;
                 }
-                write!(f, "{} => {}", a.name, a.r_type)?;
-            }
-            write!(f, "]")?;
-        } else {
-            write!(f, "Query [")?;
-            for (i, q) in self.questions.iter().enumerate() {
-                if i != 0 {
-                    write!(f, ", ")?;
-                }
-                write!(f, "{}({})", q.q_name, q.q_type)?;
+                write!(f, "{} => {}", a.name, a.data)?;
             }
             write!(f, "]")?;
         }
@@ -185,7 +184,7 @@ mod test {
         assert_eq!(message.answers[0].class, Class::IN);
         assert_eq!(message.answers[0].ttl, 600);
         assert_eq!(
-            message.answers[0].r_type,
+            message.answers[0].data,
             RData::A(Ipv4Addr::new(155, 33, 17, 68))
         );
 
@@ -289,7 +288,7 @@ mod test {
         assert_eq!(message.answers[0].class, Class::IN);
         assert_eq!(message.answers[0].ttl, 1504);
         assert_eq!(
-            message.answers[0].r_type,
+            message.answers[0].data,
             RData::CNAME(String::from("www.microsoft.com-c-3.edgekey.net"))
         );
 
@@ -298,7 +297,7 @@ mod test {
         assert_eq!(message.answers[1].class, Class::IN);
         assert_eq!(message.answers[1].ttl, 4526);
         assert_eq!(
-            message.answers[1].r_type,
+            message.answers[1].data,
             RData::CNAME(String::from(
                 "www.microsoft.com-c-3.edgekey.net.globalredir.akadns.net"
             ))
@@ -312,7 +311,7 @@ mod test {
         assert_eq!(message.answers[2].class, Class::IN);
         assert_eq!(message.answers[2].ttl, 870);
         assert_eq!(
-            message.answers[2].r_type,
+            message.answers[2].data,
             RData::CNAME(String::from("e13678.dspb.akamaiedge.net"))
         );
 
@@ -321,7 +320,7 @@ mod test {
         assert_eq!(message.answers[3].class, Class::IN);
         assert_eq!(message.answers[3].ttl, 5);
         assert_eq!(
-            message.answers[3].r_type,
+            message.answers[3].data,
             RData::A(Ipv4Addr::new(23, 40, 73, 65))
         );
     }
@@ -376,7 +375,7 @@ mod test {
         assert_eq!(message.answers[0].class, Class::IN);
         assert_eq!(message.answers[0].ttl, 3012);
         assert_eq!(
-            message.answers[0].r_type,
+            message.answers[0].data,
             RData::CNAME(String::from("www.microsoft.com-c-3.edgekey.net"))
         );
 
@@ -385,7 +384,7 @@ mod test {
         assert_eq!(message.answers[1].class, Class::IN);
         assert_eq!(message.answers[1].ttl, 16153);
         assert_eq!(
-            message.answers[1].r_type,
+            message.answers[1].data,
             RData::CNAME(String::from(
                 "www.microsoft.com-c-3.edgekey.net.globalredir.akadns.net"
             ))
@@ -399,7 +398,7 @@ mod test {
         assert_eq!(message.answers[2].class, Class::IN);
         assert_eq!(message.answers[2].ttl, 858);
         assert_eq!(
-            message.answers[2].r_type,
+            message.answers[2].data,
             RData::CNAME(String::from("e13678.dscb.akamaiedge.net"))
         );
 
@@ -408,9 +407,16 @@ mod test {
         assert_eq!(message.answers[3].class, Class::IN);
         assert_eq!(message.answers[3].ttl, 16);
         assert_eq!(
-            message.answers[3].r_type,
+            message.answers[3].data,
             RData::A(Ipv4Addr::new(23, 40, 73, 65))
         );
         println!("{:#?}", message)
+    }
+
+    #[test]
+    pub fn test_serialize_deserialize() {
+        setup();
+
+        // let mut message = Message
     }
 }

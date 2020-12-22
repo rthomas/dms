@@ -6,7 +6,7 @@ use tracing::{instrument, trace};
 #[derive(Debug, PartialEq)]
 pub struct ResourceRecord {
     pub name: String,
-    pub r_type: RData,
+    pub data: RData,
     pub class: Class,
     pub ttl: u32,
 }
@@ -19,7 +19,7 @@ impl ResourceRecord {
         // locations. It is perfectly fine with the spec to not implement this.
         let mut byte_count = encode_str(&self.name, buf)?;
 
-        let r_type = self.r_type.as_u16().to_be_bytes();
+        let r_type = self.data.as_u16().to_be_bytes();
         buf.push(r_type[0]);
         buf.push(r_type[1]);
         byte_count += 2;
@@ -37,7 +37,7 @@ impl ResourceRecord {
         // rdata will be until we convert it to bytes. We need this to get the
         // length of it, before we write the length.
         let mut rdata: Vec<u8> = Vec::with_capacity(255);
-        let rdlength = self.r_type.to_bytes(&mut rdata)?;
+        let rdlength = self.data.to_bytes(&mut rdata)?;
         byte_count += rdlength;
 
         let rdlength = (rdlength as u16).to_be_bytes();
@@ -74,6 +74,8 @@ pub enum RData {
     MAILB,
     MAILA,
     STAR,
+    /// Raw rdata - u16 is the rfc1035 type and the Vec<u8> is the bytes.
+    /// TODO: This will only be needed for fallback once all of the types above are implemented.
     Raw(u16, Vec<u8>),
 }
 

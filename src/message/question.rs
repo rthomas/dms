@@ -1,4 +1,5 @@
 use crate::message::{encode_str, Result};
+use std::default::Default;
 use std::fmt;
 
 use tracing::{instrument, trace};
@@ -114,6 +115,12 @@ impl fmt::Display for Type {
     }
 }
 
+impl Default for Type {
+    fn default() -> Self {
+        Self::A
+    }
+}
+
 impl From<Type> for u16 {
     fn from(t: Type) -> u16 {
         match t {
@@ -198,6 +205,12 @@ impl Class {
         trace!("Wrote 2 bytes");
 
         2
+    }
+}
+
+impl Default for Class {
+    fn default() -> Self {
+        Class::IN
     }
 }
 

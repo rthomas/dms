@@ -1,3 +1,4 @@
+mod builder;
 mod error;
 mod header;
 mod message;
@@ -8,6 +9,7 @@ mod resource_record;
 use error::MessageError;
 use tracing::instrument;
 
+pub use builder::MessageBuilder;
 pub use header::{Header, OpCode, RCode};
 pub use message::Message;
 pub use question::{Class, Question, Type};
