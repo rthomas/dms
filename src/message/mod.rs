@@ -9,7 +9,7 @@ mod resource_record;
 use error::MessageError;
 use tracing::instrument;
 
-pub use builder::MessageBuilder;
+pub use builder::{MessageBuilder, QuestionBuilder, ResourceRecordBuilder};
 pub use header::{Header, OpCode, RCode};
 pub use message::Message;
 pub use question::{Class, Question, Type};

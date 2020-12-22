@@ -417,6 +417,42 @@ mod test {
     pub fn test_serialize_deserialize() {
         setup();
 
-        // let mut message = Message
+        use crate::message::{MessageBuilder, QuestionBuilder, ResourceRecordBuilder};
+
+        let message = MessageBuilder::new()
+            .id(1234)
+            .qr(true)
+            .aa(true)
+            .ad(true)
+            .opcode(OpCode::Status)
+            .rcode(RCode::ServerFailure)
+            .question(
+                QuestionBuilder::new()
+                    .name("www.google.com")
+                    .q_type(Type::A)
+                    .build(),
+            )
+            .answer(
+                ResourceRecordBuilder::new(
+                    "www.google.com",
+                    RData::A(Ipv4Addr::new(142, 250, 71, 68)),
+                )
+                .ttl(5678)
+                .build(),
+            )
+            .answer(
+                ResourceRecordBuilder::new(
+                    "www.google.com",
+                    RData::A(Ipv4Addr::new(216, 58, 199, 36)),
+                )
+                .ttl(5678)
+                .build(),
+            )
+            .build();
+        let mut buf = Vec::new();
+        let message_len = message.to_bytes(&mut buf).unwrap();
+        let message2 = Message::from_bytes(&buf[0..message_len]).unwrap();
+
+        assert_eq!(message, message2);
     }
 }
