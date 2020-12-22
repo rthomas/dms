@@ -64,7 +64,7 @@ async fn handle_request(
         local_socket
             .lock()
             .await
-            .send((Bytes::copy_from_slice(&buf[0..len]), client_addr))
+            .send((buf.into(), client_addr))
             .await?;
     }
 
