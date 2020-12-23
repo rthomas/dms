@@ -1,0 +1,17 @@
+[package]
+name = "dms-server"
+version = "0.1.0"
+authors = ["Ryan Thomas <ryan@ryant.org>"]
+edition = "2018"
+
+[dependencies]
+dns-message = { path = "../dns-message" }
+
+anyhow = "1.0.34"
+bytes = "0.6.0"
+futures = "0.3.8"
+futures-util = "0.3.8"
+tokio = { version = "0.3.4", features = ["full"] }
+tokio-util = {version = "0.5.1", features = ["full"]}
+tracing = "0.1.21" 
+tracing-subscriber = "0.2.15"

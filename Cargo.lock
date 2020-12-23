@@ -98,16 +98,27 @@ dependencies = [
 ]
 
 [[package]]
-name = "dms"
+name = "dms-server"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "bytes",
+ "dns-message",
  "futures",
  "futures-util",
- "nom",
  "tokio",
  "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "dns-message"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "nom",
  "tracing",
  "tracing-subscriber",
 ]

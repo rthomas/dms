@@ -1,0 +1,12 @@
+[package]
+name = "dns-message"
+version = "0.1.0"
+authors = ["Ryan Thomas <ryan@ryant.org>"]
+edition = "2018"
+
+[dependencies]
+anyhow = "1.0.34"
+bytes = "0.6.0"
+nom = "6.0.0"
+tracing = "0.1.21" 
+tracing-subscriber = "0.2.15"

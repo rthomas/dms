@@ -1,7 +1,7 @@
 use bytes::Bytes;
+use dns_message::message::{Message, RData};
 use futures::prelude::*;
 use futures_util::stream::SplitSink;
-use message::Message;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::UdpSocket;
@@ -9,8 +9,6 @@ use tokio::sync::Mutex;
 use tokio_util::codec::BytesCodec;
 use tokio_util::udp::UdpFramed;
 use tracing::{error, info};
-
-mod message;
 
 type Result<T> = anyhow::Result<T>;
 
@@ -106,7 +104,7 @@ async fn modify_request(msg: &mut Message) {}
 async fn modify_response(msg: &mut Message) {
     for a in msg.answers.iter_mut() {
         match a.data {
-            message::RData::A(ref mut v4) => {
+            RData::A(ref mut v4) => {
                 println!("A: {}", v4);
                 *v4 = std::net::Ipv4Addr::new(127, 0, 0, 1);
             }
