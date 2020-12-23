@@ -1,5 +1,4 @@
-use crate::message::parser;
-use crate::message::{Header, Question, ResourceRecord, Result};
+use crate::{parser, Header, Question, ResourceRecord, Result};
 use std::fmt;
 use tracing::{instrument, trace};
 
@@ -83,7 +82,7 @@ impl fmt::Display for Message {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::message::{Class, OpCode, RCode, RData, Type};
+    use crate::{Class, OpCode, RCode, RData, Type};
     use std::net::Ipv4Addr;
     use std::sync::Once;
 
@@ -417,7 +416,7 @@ mod test {
     pub fn test_serialize_deserialize() {
         setup();
 
-        use crate::message::{MessageBuilder, QuestionBuilder, ResourceRecordBuilder};
+        use crate::{MessageBuilder, QuestionBuilder, ResourceRecordBuilder};
 
         let message = MessageBuilder::new()
             .id(1234)

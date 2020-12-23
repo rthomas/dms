@@ -1,5 +1,5 @@
 use bytes::Bytes;
-use dns_message::message::{Message, RData};
+use dns_message::{Message, RData};
 use futures::prelude::*;
 use futures_util::stream::SplitSink;
 use std::net::SocketAddr;

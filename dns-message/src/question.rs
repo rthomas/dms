@@ -1,4 +1,4 @@
-use crate::message::{encode_str, Result};
+use crate::{encode_str, Result};
 use std::default::Default;
 use std::fmt;
 

@@ -1,4 +1,4 @@
-use crate::message::{encode_str, Class, Result};
+use crate::{encode_str, Class, Result};
 use std::fmt;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use tracing::{instrument, trace};

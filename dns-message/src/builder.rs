@@ -1,6 +1,4 @@
-use crate::message::{
-    Class, Header, Message, OpCode, Question, RCode, RData, ResourceRecord, Type,
-};
+use crate::{Class, Header, Message, OpCode, Question, RCode, RData, ResourceRecord, Type};
 use std::default::Default;
 
 #[derive(Debug, Default)]

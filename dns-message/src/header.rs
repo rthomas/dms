@@ -1,5 +1,4 @@
-use crate::message::Result;
-use crate::message::{Message, MessageError};
+use crate::{Message, MessageError, Result};
 use std::default::Default;
 use tracing::{instrument, trace};
 

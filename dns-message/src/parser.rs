@@ -1,8 +1,5 @@
-use crate::message::error::MessageError;
-use crate::message::Result;
-use crate::message::{
-    Class, Header, Message, OpCode, Question, RCode, RData, ResourceRecord, Type,
-};
+use crate::error::MessageError;
+use crate::{Class, Header, Message, OpCode, Question, RCode, RData, ResourceRecord, Result, Type};
 use nom::bits::complete::take as take_bits;
 use nom::bytes::complete::take as take_bytes;
 use nom::combinator::map_res;
