@@ -40,3 +40,16 @@ pub(crate) fn encode_str(s: &str, buf: &mut Vec<u8>) -> Result<usize> {
     byte_count += 1;
     Ok(byte_count)
 }
+
+#[cfg(test)]
+mod test {
+    use std::sync::Once;
+
+    static INIT: Once = Once::new();
+
+    pub fn setup() {
+        INIT.call_once(|| {
+            tracing_subscriber::fmt::init();
+        });
+    }
+}
