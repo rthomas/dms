@@ -74,6 +74,23 @@ fn from_irr(input: &[u8], irr: RawResourceRecord) -> Result<ResourceRecord> {
             let name = flatten_to_string(&names);
             RData::CNAME(name)
         }
+        Type::SOA => {
+            let (i, mut mnames) = read_names(&irr.rdata)?;
+            resolve_names(input, &mut mnames, &mut HashSet::new())?;
+            let mname = flatten_to_string(&mnames);
+
+            let (i, mut rnames) = read_names(i)?;
+            resolve_names(input, &mut rnames, &mut HashSet::new())?;
+            let rname = flatten_to_string(&rnames);
+
+            let (i, serial) = read_u32(i)?;
+            let (i, refresh) = read_u32(i)?;
+            let (i, retry) = read_u32(i)?;
+            let (i, expire) = read_u32(i)?;
+            let (_, minimum) = read_u32(i)?;
+
+            RData::SOA(mname, rname, serial, refresh, retry, expire, minimum)
+        }
         Type::TXT => RData::TXT(String::from_utf8(irr.rdata)?),
         Type::AAAA => {
             let mut v6: [u8; 16] = [0; 16];
@@ -746,5 +763,28 @@ mod test {
             RData::A(Ipv4Addr::new(23, 40, 73, 65))
         );
         println!("{:#?}", message)
+    }
+
+    #[test]
+    fn test_parse_soa() {
+        setup();
+
+        let input: &[u8] = &[
+            52, 123, 129, 128, 0, 1, 0, 1, 0, 0, 0, 0, 5, 114, 121, 97, 110, 116, 3, 111, 114, 103,
+            0, 0, 6, 0, 1, 192, 12, 0, 6, 0, 1, 0, 0, 84, 95, 0, 81, 11, 110, 115, 45, 99, 108,
+            111, 117, 100, 45, 97, 49, 13, 103, 111, 111, 103, 108, 101, 100, 111, 109, 97, 105,
+            110, 115, 3, 99, 111, 109, 0, 20, 99, 108, 111, 117, 100, 45, 100, 110, 115, 45, 104,
+            111, 115, 116, 109, 97, 115, 116, 101, 114, 6, 103, 111, 111, 103, 108, 101, 192, 65,
+            0, 0, 0, 1, 0, 0, 84, 96, 0, 0, 14, 16, 0, 3, 244, 128, 0, 0, 1, 44,
+        ];
+
+        let message = Message::from_bytes(&input).unwrap();
+
+        let mut buf = Vec::with_capacity(1024);
+        let len = message.to_bytes(&mut buf).unwrap();
+
+        let message2 = Message::from_bytes(&buf[0..len]).unwrap();
+
+        assert_eq!(message, message2);
     }
 }

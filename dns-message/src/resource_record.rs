@@ -85,7 +85,24 @@ pub enum RData {
     CNAME(String),
 
     /// RFC1035 - (6) marks the start of a zone of authority.
-    SOA,
+    ///
+    /// The components consist of:
+    /// - MNAME - The <domain-name> of the name server that was the original or
+    ///   primary source of data for this zone.
+    /// - RNAME - A <domain-name> which specifies the mailbox of the person
+    ///   responsible for this zone.
+    /// - SERIAL - The unsigned 32 bit version number of the original copy of
+    ///   the zone. Zone transfers preserve this value. This value wraps and
+    ///   should be compared using sequence space arithmetic.
+    /// - REFRESH - A 32 bit time interval before the zone should be refreshed.
+    /// - RETRY - A 32 bit time interval that should elapse before a failed
+    ///   refresh should be retried.
+    /// - EXPIRE - A 32 bit time value that specifies the upper limit on the
+    ///   time interval that can elapse before the zone is no longer
+    ///   authoritative.
+    /// - MINIMUM - The unsigned 32 bit minimum TTL field that should be
+    ///   exported with any RR from this zone.
+    SOA(String, String, u32, u32, u32, u32, u32),
 
     /// RFC1035 - (7) a mailbox domain name (EXPERIMENTAL).
     MB,
@@ -135,7 +152,7 @@ impl RData {
             RData::MD => 3,
             RData::MF => 4,
             RData::CNAME(_) => 5,
-            RData::SOA => 6,
+            RData::SOA(_, _, _, _, _, _, _) => 6,
             RData::MB => 7,
             RData::MG => 8,
             RData::MR => 9,
@@ -165,6 +182,19 @@ impl RData {
                 Ok(4)
             }
             RData::CNAME(s) => encode_str(s, buf),
+            RData::SOA(mname, rname, serial, refresh, retry, expire, minimum) => {
+                let mut bytes_written = encode_str(mname, buf)?;
+                bytes_written += encode_str(rname, buf)?;
+
+                buf.extend_from_slice(&serial.to_be_bytes());
+                buf.extend_from_slice(&refresh.to_be_bytes());
+                buf.extend_from_slice(&retry.to_be_bytes());
+                buf.extend_from_slice(&expire.to_be_bytes());
+                buf.extend_from_slice(&minimum.to_be_bytes());
+                bytes_written += 20;
+
+                Ok(bytes_written)
+            }
             RData::TXT(s) => {
                 buf.extend_from_slice(s.as_bytes());
                 Ok(s.len())
@@ -186,7 +216,11 @@ impl fmt::Display for RData {
             Self::MD => write!(f, "MD"),
             Self::MF => write!(f, "MF"),
             Self::CNAME(s) => write!(f, "CNAME({})", s),
-            Self::SOA => write!(f, "SOA"),
+            Self::SOA(mname, rname, serial, refresh, retry, expire, minimum) => write!(
+                f,
+                "SOA({}, {}, {}, {}, {}, {}, {})",
+                mname, rname, serial, refresh, retry, expire, minimum
+            ),
             Self::MB => write!(f, "MB"),
             Self::MG => write!(f, "MG"),
             Self::MR => write!(f, "MR"),
