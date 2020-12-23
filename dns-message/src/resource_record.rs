@@ -4,10 +4,24 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 use tracing::{instrument, trace};
 
 #[derive(Debug, PartialEq)]
+/// The answer, authority and additional sections all share the same format,
+/// that is a variable number of [`ResourceRecord`]s.
+///
+/// These can be constructed with a [`crate::ResourceRecordBuilder`].
 pub struct ResourceRecord {
+    /// A domain name to which this resource record pertains.
     pub name: String,
+
+    /// The type and data of the resource record.
     pub data: RData,
+
+    /// The class of the data in the `data` field.
     pub class: Class,
+
+    /// RFC1035 - a 32 bit unsigned integer that specifies the time interval (in
+    /// seconds) that the resource record may be cached before it should be
+    /// discarded.  Zero values are interpreted to mean that the RR can only be
+    /// used for the transaction in progress, and should not be cached.
     pub ttl: u32,
 }
 
@@ -53,29 +67,62 @@ impl ResourceRecord {
 }
 
 #[derive(Debug, PartialEq)]
+/// The [`ResourceRecord`] data.
 pub enum RData {
+    /// RFC1035 - (1) a host address.
     A(Ipv4Addr),
+
+    /// RFC1035 - (2) an authoritative name server.
     NS,
+
+    /// RFC1035 - (3) a mail destination (Obsolete - use MX).
     MD,
+
+    /// RFC1035 - (4) a mail forwarder (Obsolete - use MX).
     MF,
+
+    /// RFC1035 - (5) the canonical name for an alias.
     CNAME(String),
+
+    /// RFC1035 - (6) marks the start of a zone of authority.
     SOA,
+
+    /// RFC1035 - (7) a mailbox domain name (EXPERIMENTAL).
     MB,
+
+    /// RFC1035 - (8) a mail group member (EXPERIMENTAL).
     MG,
+
+    /// RFC1035 - (9) a mail rename domain name (EXPERIMENTAL).
     MR,
+
+    /// RFC1035 - (10) a null RR (EXPERIMENTAL).
     NULL,
+
+    /// RFC1035 - (11) a well known service description.
     WKS,
+
+    /// RFC1035 - (12) a domain name pointer.
     PTR,
+
+    /// RFC1035 - (13) host information.
     HINFO,
+
+    /// RFC1035 - (14) mailbox or mail list information.
     MINFO,
+
+    /// RFC1035 - (15) mail exchange.
     MX,
+
+    /// RFC1035 - (16) text strings.
     TXT(String),
+
+    /// RFC3596 - The AAAA resource record type is a record specific to the
+    /// Internet class that stores a single IPv6 address.
     AAAA(Ipv6Addr),
-    AXFR,
-    MAILB,
-    MAILA,
-    STAR,
-    /// Raw rdata - u16 is the rfc1035 type and the Vec<u8> is the bytes.
+
+    /// Raw rdata - when an unknown type is encountered, they type and bytes will be in a Raw.
+    /// The u16 is the rfc1035 type and the Vec<u8> is the bytes.
     /// TODO: This will only be needed for fallback once all of the types above are implemented.
     Raw(u16, Vec<u8>),
 }
@@ -100,10 +147,6 @@ impl RData {
             RData::MX => 15,
             RData::TXT(_) => 16,
             RData::AAAA(_) => 28,
-            RData::AXFR => 252,
-            RData::MAILB => 253,
-            RData::MAILA => 254,
-            RData::STAR => 255,
             RData::Raw(i, _) => *i,
         }
     }
@@ -155,10 +198,6 @@ impl fmt::Display for RData {
             Self::MX => write!(f, "MX"),
             Self::TXT(s) => write!(f, "TXT({})", s),
             Self::AAAA(v6) => write!(f, "AAAA({})", v6),
-            Self::AXFR => write!(f, "AXFR"),
-            Self::MAILB => write!(f, "MAILB"),
-            Self::MAILA => write!(f, "MAILA"),
-            Self::STAR => write!(f, "*"),
             Self::Raw(id, v) => write!(f, "Raw({}: {:?})", id, v),
         }
     }

@@ -3,11 +3,24 @@ use std::fmt;
 use tracing::{instrument, trace};
 
 #[derive(Debug, PartialEq)]
+/// The DNS Message.
+///
+/// This represents both the request and response to/from a DNS server, and can
+/// be built with the [`crate::MessageBuilder`].
 pub struct Message {
+    /// The [`Header`] for this [`Message`].
     pub header: Header,
+
+    /// The [`Question`]s for the server.
     pub questions: Vec<Question>,
+
+    /// The [`ResourceRecord`] amnswers from the server.
     pub answers: Vec<ResourceRecord>,
+
+    /// [`ResourceRecord`]s pointing toward an authority.
     pub name_servers: Vec<ResourceRecord>,
+
+    /// [`ResourceRecord`]s holding additional infomation.
     pub additional_records: Vec<ResourceRecord>,
 }
 

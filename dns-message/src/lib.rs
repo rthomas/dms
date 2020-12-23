@@ -1,3 +1,13 @@
+#![deny(missing_docs)]
+
+//! A DNS message parsing and building library.
+//!
+//! A [`Message`] represents the DNS request and response, and consists of a
+//! [`Header`], [`Question`] section and multiple [`ResourceRecord`] sections.
+//!
+//! A [`Message`], [`Question`] and [`ResourceRecord`] can be built either
+//! manually, or with the [`MessageBuilder`], [`QuestionBuilder`] and
+//! [`ResourceRecordBuilder`] respectively.
 mod builder;
 mod error;
 mod header;

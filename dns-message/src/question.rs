@@ -4,9 +4,23 @@ use std::fmt;
 
 use tracing::{instrument, trace};
 #[derive(Debug, PartialEq)]
+/// The question section is used to carry the "question" in most queries, i.e.,
+/// the parameters that define what is being asked.
 pub struct Question {
+    /// RFC1035 - a domain name represented as a sequence of labels, where each
+    /// label consists of a length octet followed by that number of octets.  The
+    /// domain name terminates with the zero length octet for the null label of
+    /// the root.  Note that this field may be an odd number of octets; no
+    /// padding is used.
     pub q_name: String,
+
+    /// RFC1035 - a two octet code which specifies the type of the query. The
+    /// values for this field include all codes valid for a ['Type'] field,
+    /// together with some more general codes which can match more than one type
+    /// of RR.
     pub q_type: Type,
+
+    /// RFC1035 - a two octet code that specifies the ['Class`] of the query.
     pub q_class: Class,
 }
 
@@ -24,28 +38,73 @@ impl Question {
 }
 
 #[derive(Debug, PartialEq)]
+/// Types used in [`Question`]s.
 pub enum Type {
+    /// RFC1035 - (1) a host address.
     A,
+
+    /// RFC1035 - (2) an authoritative name server.
     NS,
+
+    /// RFC1035 - (3) a mail destination (Obsolete - use MX).
     MD,
+
+    /// RFC1035 - (4) a mail forwarder (Obsolete - use MX).
     MF,
+
+    /// RFC1035 - (5) the canonical name for an alias.
     CNAME,
+
+    /// RFC1035 - (6) marks the start of a zone of authority.
     SOA,
+
+    /// RFC1035 - (7) a mailbox domain name (EXPERIMENTAL).
     MB,
+
+    /// RFC1035 - (8) a mail group member (EXPERIMENTAL).
     MG,
+
+    /// RFC1035 - (9) a mail rename domain name (EXPERIMENTAL).
     MR,
+
+    /// RFC1035 - (10) a null RR (EXPERIMENTAL).
     NULL,
+
+    /// RFC1035 - (11) a well known service description.
     WKS,
+
+    /// RFC1035 - (12) a domain name pointer.
     PTR,
+
+    /// RFC1035 - (13) host information.
     HINFO,
+
+    /// RFC1035 - (14) mailbox or mail list information.
     MINFO,
+
+    /// RFC1035 - (15) mail exchange.
     MX,
+
+    /// RFC1035 - (16) text strings.
     TXT,
+
+    /// RFC3596 - The AAAA resource record type is a record specific to the
+    /// Internet class that stores a single IPv6 address.
     AAAA,
+
+    /// RFC1035 - (252) A request for a transfer of an entire zone.
     AXFR,
+
+    /// RFC1035 - (253) A request for mailbox-related records (MB, MG or MR).
     MAILB,
+
+    /// RFC1035 - (254) A request for mail agent RRs (Obsolete - see MX).
     MAILA,
+
+    /// RFC1035 - (255) A request for all records.
     STAR,
+
+    /// An unknown [`Type`] - the value is contained within.
     Unknown(u16),
 }
 
@@ -184,12 +243,26 @@ impl From<u16> for Type {
 }
 
 #[derive(Debug, PartialEq)]
+/// The class of the query - you will want [`Class::IN`] (the default) 99.99% of
+/// the time.
 pub enum Class {
+    /// RFC1035 - 1 the Internet.
     IN,
+
+    /// RFC1035 - 2 the CSNET class (Obsolete - used only for examples in some
+    /// obsolete RFCs)
     CS,
+
+    /// RFC1035 - 3 the CHAOS class.
     CH,
+
+    /// RFC1035 - 4 Hesiod [Dyer 87].
     HS,
+
+    /// RFC1035 - 255 any class.
     STAR,
+
+    /// An unknown class - contained within.
     Unknown(u16),
 }
 
