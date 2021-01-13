@@ -68,6 +68,12 @@ fn from_irr(input: &[u8], irr: RawResourceRecord) -> Result<ResourceRecord> {
             irr.rdata[2],
             irr.rdata[3],
         )),
+        Type::NS => {
+            let (_, mut names) = read_names(&irr.rdata)?;
+            resolve_names(input, &mut names, &mut HashSet::new())?;
+            let name = flatten_to_string(&names);
+            RData::NS(name)
+        }
         Type::CNAME => {
             let (_, mut names) = read_names(&irr.rdata)?;
             resolve_names(input, &mut names, &mut HashSet::new())?;

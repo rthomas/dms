@@ -73,7 +73,7 @@ pub enum RData {
     A(Ipv4Addr),
 
     /// RFC1035 - (2) an authoritative name server.
-    NS,
+    NS(String),
 
     /// RFC1035 - (3) a mail destination (Obsolete - use MX).
     MD,
@@ -148,7 +148,7 @@ impl RData {
     fn as_u16(&self) -> u16 {
         match self {
             RData::A(_) => 1,
-            RData::NS => 2,
+            RData::NS(_) => 2,
             RData::MD => 3,
             RData::MF => 4,
             RData::CNAME(_) => 5,
@@ -181,6 +181,7 @@ impl RData {
                 buf.extend_from_slice(&v4.octets());
                 Ok(4)
             }
+            RData::NS(s) => encode_str(s, buf),
             RData::CNAME(s) => encode_str(s, buf),
             RData::SOA(mname, rname, serial, refresh, retry, expire, minimum) => {
                 let mut bytes_written = encode_str(mname, buf)?;
@@ -212,7 +213,7 @@ impl fmt::Display for RData {
     fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
         match self {
             Self::A(v4) => write!(f, "A({})", v4),
-            Self::NS => write!(f, "NS"),
+            Self::NS(s) => write!(f, "NS({})", s),
             Self::MD => write!(f, "MD"),
             Self::MF => write!(f, "MF"),
             Self::CNAME(s) => write!(f, "CNAME({})", s),
